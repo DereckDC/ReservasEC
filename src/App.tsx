@@ -8,6 +8,7 @@ import ClientAppointments from './components/ClientAppointments';
 import { db, isSupabaseConfigured } from './lib/db';
 import { Profile, Business } from './types';
 import { AlertCircle, ShieldAlert, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
@@ -15,6 +16,7 @@ export default function App() {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [superadminSelectedBusinessId, setSuperadminSelectedBusinessId] = useState<string>('biz-1');
+  const [routeError, setRouteError] = useState<string | null>(null);
 
   // Estados de Navegación del Sidebar y Tablas Internas
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
@@ -32,7 +34,13 @@ export default function App() {
   }, []);
 
   const syncRoute = (bizList: Business[]) => {
-    const path = window.location.pathname.replace(/^\/|\/$/g, '');
+    // Intentar leer primero el pathname convencional para URLs limpias (/nombredelnegocio)
+    let path = window.location.pathname.replace(/^\/|\/$/g, '');
+    
+    // Si no hay pathname convencional, caer en el hash para compatibilidad
+    if (!path) {
+      path = window.location.hash.replace(/^#\/?/, '').replace(/\/$/, '');
+    }
     
     if (!path || path === 'catalog') {
       setCurrentView('catalog');
@@ -54,13 +62,13 @@ export default function App() {
       return;
     }
 
-    // Is it a business slug?
+    // Comprobar si es un slug de negocio válido
     const found = bizList.find(b => b.slug === path);
     if (found) {
       setCurrentView(`business:${found.slug}`);
     } else {
-      // Not a valid business slug
-      alert(`¡Establecimiento no encontrado!\nEl negocio con el identificador "${path}" no existe en nuestra red. Serás redireccionado al catálogo principal.`);
+      // No es un slug de negocio válido. Abrir el modal de error y redireccionar limpiamente.
+      setRouteError(path);
       window.history.replaceState({ view: 'catalog' }, '', '/');
       setCurrentView('catalog');
     }
@@ -100,17 +108,17 @@ export default function App() {
     loadInitialState();
   }, []);
 
-  // Escuchar el evento popstate para la navegación con botones atrás/adelante del navegador
+  // Escuchar eventos popstate y hashchange para una navegación totalmente sincronizada y fluida
   useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      if (event.state && event.state.view) {
-        setCurrentView(event.state.view);
-      } else {
-        syncRoute(businesses);
-      }
+    const handleNavigationEvent = () => {
+      syncRoute(businesses);
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('popstate', handleNavigationEvent);
+    window.addEventListener('hashchange', handleNavigationEvent);
+    return () => {
+      window.removeEventListener('popstate', handleNavigationEvent);
+      window.removeEventListener('hashchange', handleNavigationEvent);
+    };
   }, [businesses]);
 
   // Guardar usuario activo en localstorage para persistencia de sesión ligera
@@ -129,7 +137,7 @@ export default function App() {
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    // Sincronizar URL del navegador
+    // Sincronizar URL del navegador usando rutas limpias convencionales (sin /#/)
     let newPath = '/';
     if (view === 'catalog') {
       newPath = '/';
@@ -266,6 +274,46 @@ export default function App() {
           </p>
         </div>
       </footer>
+
+      {/* Modal de Alerta de Ruta de Establecimiento Inexistente */}
+      <AnimatePresence>
+        {routeError && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in" id="route-error-modal">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="bg-[#0f1115] border border-[#2d333b] rounded-2xl p-6 max-w-md w-full shadow-2xl text-center space-y-4"
+            >
+              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mx-auto border border-red-500/30">
+                <AlertCircle className="w-6 h-6 text-red-500" />
+              </div>
+              
+              <div className="space-y-1.5">
+                <h3 className="font-display font-bold text-base text-white">Establecimiento No Encontrado</h3>
+                <p className="text-xs text-[#e2e8f0]/60 leading-relaxed">
+                  El negocio con el identificador <span className="font-mono text-[#c5a059] bg-[#1c2128] px-1.5 py-0.5 rounded border border-[#2d333b]">"{routeError}"</span> no está registrado o no se encuentra activo.
+                </p>
+              </div>
+
+              <p className="text-[10px] text-[#e2e8f0]/40 bg-[#1c2128]/50 p-2.5 rounded-lg border border-[#2d333b]/50">
+                Al presionar aceptar, serás redireccionado al catálogo de negocios de AgendaEC para explorar todos nuestros establecimientos y servicios.
+              </p>
+
+              <button
+                onClick={() => {
+                  setRouteError(null);
+                  handleNavigate('catalog');
+                }}
+                className="w-full bg-[#c5a059] hover:bg-[#b08d4a] active:bg-[#9c7d41] text-[#0f1115] font-bold text-xs py-3 rounded-xl transition-all cursor-pointer shadow-lg hover:shadow-[#c5a059]/10"
+              >
+                Aceptar
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

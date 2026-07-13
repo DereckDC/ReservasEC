@@ -296,7 +296,24 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
-    console.log('Vite middleware montado en Express.');
+    
+    // Fallback de desarrollo para SPA (Evita 404 en refrescos de rutas dinámicas)
+    app.get('*', async (req, res, next) => {
+      // Ignorar llamadas de API y archivos con extensión (ej. .js, .css, .png, .ico, etc.)
+      if (req.originalUrl.startsWith('/api') || req.originalUrl.includes('.')) {
+        return next();
+      }
+      try {
+        const fs = await import('fs');
+        let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(req.originalUrl, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e);
+        next(e);
+      }
+    });
+    console.log('Vite middleware y SPA fallback montados en Express.');
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
