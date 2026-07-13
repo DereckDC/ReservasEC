@@ -603,9 +603,10 @@ export default function Header({
                   <input
                     type={showPassword ? "text" : "password"}
                     required
+                    placeholder="password"
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    className="w-full bg-[#0f1115] border border-[#2d333b] rounded-lg p-2.5 pr-10 text-sm text-[#e2e8f0] focus:ring-2 focus:ring-[#c5a059] focus:outline-none"
+                    className="w-full bg-[#0f1115] border border-[#2d333b] rounded-lg p-2.5 pr-10 text-sm text-[#e2e8f0] focus:ring-2 focus:ring-[#c5a059] focus:outline-none placeholder-[#e2e8f0]/30"
                   />
                   <button
                     type="button"
