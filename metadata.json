@@ -1,0 +1,6 @@
+{
+  "name": "AgendaEC",
+  "description": "Plataforma web para gestionar citas de múltiples negocios con calendario sincronizado, recordatorios automáticos por correo, analíticas detalladas y perfiles independientes por cliente.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
