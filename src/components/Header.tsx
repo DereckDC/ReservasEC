@@ -55,6 +55,10 @@ export default function Header({
   useEffect(() => {
     if (!showAuthModal) {
       setAuthError(null);
+      setEmailInput('');
+      setPasswordInput('');
+      setNameInput('');
+      setShowPassword(false);
     }
   }, [showAuthModal]);
 
@@ -109,12 +113,13 @@ export default function Header({
             if (profile) {
               setCurrentUser(profile);
             } else {
-              // Si no existe perfil en public.profiles, crearlo ahora con rol cliente por defecto
+              // Si no existe perfil en public.profiles, crearlo con el rol por defecto de cliente
               const newProfile: Profile = {
                 id: authData.user.id,
                 email: authData.user.email || emailInput,
                 full_name: emailInput.split('@')[0],
                 role: 'client',
+                business_id: undefined,
                 created_at: new Date().toISOString()
               };
               const created = await db.createProfile(newProfile);
@@ -122,7 +127,7 @@ export default function Header({
             }
           }
         } else {
-          // Registro en Supabase Auth (Crea nuevo usuario con rol por defecto 'client')
+          // Registro en Supabase Auth
           const { data: authData, error: authErr } = await supabase.auth.signUp({
             email: emailInput,
             password: passwordInput,
@@ -133,39 +138,32 @@ export default function Header({
             }
           });
 
-          if (authErr) throw authErr;
+          if (authErr) {
+            throw authErr;
+          }
 
           if (authData.user) {
-            // El trigger de base de datos 'on_auth_user_created' ya insertó el perfil en public.profiles automáticamente.
-            // Para evitar conflictos de RLS o claves duplicadas, consultamos el perfil recién creado o construimos el objeto localmente.
-            let profile: Profile | null = null;
-            try {
-              const { data } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', authData.user.id)
-                .maybeSingle();
-              profile = data;
-            } catch (fetchErr) {
-              console.error('Error al obtener perfil recién creado:', fetchErr);
-            }
-
-            const activeProfile: Profile = profile || {
+            // Perfil por defecto de cliente sin asociar a negocio
+            const profileData: Profile = {
               id: authData.user.id,
               email: emailInput,
               full_name: nameInput || emailInput.split('@')[0],
               role: 'client',
+              business_id: undefined,
               created_at: new Date().toISOString()
             };
 
-            setCurrentUser(activeProfile);
+            // Intentamos crear el perfil en la base de datos de Supabase.
+            // Si el trigger ya lo creó, el "upsert" actualizará los campos.
+            const created = await db.createProfile(profileData);
+            setCurrentUser(created);
 
-            // Correo de bienvenida
+            // Intentar enviar correo de bienvenida
             try {
               fetch('/api/notify-welcome', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: emailInput, full_name: activeProfile.full_name, role: 'client' })
+                body: JSON.stringify({ email: emailInput, full_name: profileData.full_name, role: profileData.role })
               }).catch(errWelcome => console.error('Error enviando correo de bienvenida:', errWelcome));
             } catch (errWelcome) {
               console.error('Error enviando correo de bienvenida:', errWelcome);
@@ -174,10 +172,25 @@ export default function Header({
         }
         setShowAuthModal(false);
         setEmailInput('');
+        setPasswordInput('');
         setNameInput('');
+        setShowPassword(false);
       } catch (err: any) {
         console.error('Error de autenticación con Supabase:', err);
-        setAuthError(err.message || 'Error al autenticar con el servidor');
+        
+        // Traducir los errores más comunes de Supabase para una mejor UX de producción en español
+        let displayError = err.message || 'Error al autenticar con el servidor';
+        if (displayError.toLowerCase().includes('already registered') || displayError.toLowerCase().includes('already exists')) {
+          displayError = 'El correo electrónico ingresado ya se encuentra registrado. Por favor, intenta iniciar sesión.';
+        } else if (displayError.toLowerCase().includes('invalid login credentials')) {
+          displayError = 'Credenciales de acceso incorrectas. Por favor, verifica tu correo y contraseña.';
+        } else if (displayError.toLowerCase().includes('signup is disabled')) {
+          displayError = 'El registro de nuevos usuarios está temporalmente deshabilitado.';
+        } else if (displayError.toLowerCase().includes('email not confirmed')) {
+          displayError = 'Por favor, confirma tu correo electrónico antes de iniciar sesión.';
+        }
+        
+        setAuthError(displayError);
         return;
       }
     } else {
@@ -193,6 +206,11 @@ export default function Header({
         console.error('Error al cerrar sesión en Supabase:', err);
       }
     }
+    // Limpiar toda la información de autenticación del estado al cerrar sesión
+    setEmailInput('');
+    setPasswordInput('');
+    setNameInput('');
+    setShowPassword(false);
     setCurrentUser(null);
     onNavigate('catalog');
   };
@@ -358,24 +376,26 @@ export default function Header({
                   </div>
 
                   {/* Panel de Control de Negocio (Admin) */}
-                  {currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+                  {currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'professional') && (
                     <div className="space-y-1 pt-3 border-t border-[#2d333b]/40">
                       <span className="text-[9px] font-bold text-[#c5a059] uppercase tracking-wider block mb-1.5 px-1 flex items-center gap-1">
                         <Briefcase className="w-3.5 h-3.5 text-[#c5a059]" />
-                        <span>Panel de Negocio</span>
+                        <span>{currentUser.role === 'professional' ? 'Panel de Profesional' : 'Panel de Negocio'}</span>
                       </span>
 
-                      <button
-                        onClick={() => { onNavigate('admin'); setAdminTab('analytics'); setShowSidebar(false); }}
-                        className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
-                          currentView === 'admin' && adminTab === 'analytics'
-                            ? 'bg-[#c5a059]/10 text-[#c5a059] border-[#c5a059]/30 shadow-sm'
-                            : 'text-[#e2e8f0]/70 hover:text-[#c5a059] hover:bg-white/5 border-transparent'
-                        }`}
-                      >
-                        <TrendingUp className="w-4 h-4 shrink-0 text-[#c5a059]" />
-                        <span>Analíticas & Métricas</span>
-                      </button>
+                      {currentUser.role !== 'professional' && (
+                        <button
+                          onClick={() => { onNavigate('admin'); setAdminTab('analytics'); setShowSidebar(false); }}
+                          className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
+                            currentView === 'admin' && adminTab === 'analytics'
+                              ? 'bg-[#c5a059]/10 text-[#c5a059] border-[#c5a059]/30 shadow-sm'
+                              : 'text-[#e2e8f0]/70 hover:text-[#c5a059] hover:bg-white/5 border-transparent'
+                          }`}
+                        >
+                          <TrendingUp className="w-4 h-4 shrink-0 text-[#c5a059]" />
+                          <span>Analíticas & Métricas</span>
+                        </button>
+                      )}
 
                       <button
                         onClick={() => { onNavigate('admin'); setAdminTab('appointments'); setShowSidebar(false); }}
@@ -386,44 +406,48 @@ export default function Header({
                         }`}
                       >
                         <ClipboardList className="w-4 h-4 shrink-0 text-[#c5a059]" />
-                        <span>Control de Agenda</span>
+                        <span>{currentUser.role === 'professional' ? 'Mis Citas & Fichas' : 'Control de Agenda'}</span>
                       </button>
 
-                      <button
-                        onClick={() => { onNavigate('admin'); setAdminTab('services'); setShowSidebar(false); }}
-                        className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
-                          currentView === 'admin' && adminTab === 'services'
-                            ? 'bg-[#c5a059]/10 text-[#c5a059] border-[#c5a059]/30 shadow-sm'
-                            : 'text-[#e2e8f0]/70 hover:text-[#c5a059] hover:bg-white/5 border-transparent'
-                        }`}
-                      >
-                        <Briefcase className="w-4 h-4 shrink-0 text-[#c5a059]" />
-                        <span>Servicios</span>
-                      </button>
+                      {currentUser.role !== 'professional' && (
+                        <>
+                          <button
+                            onClick={() => { onNavigate('admin'); setAdminTab('services'); setShowSidebar(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
+                              currentView === 'admin' && adminTab === 'services'
+                                ? 'bg-[#c5a059]/10 text-[#c5a059] border-[#c5a059]/30 shadow-sm'
+                                : 'text-[#e2e8f0]/70 hover:text-[#c5a059] hover:bg-white/5 border-transparent'
+                            }`}
+                          >
+                            <Briefcase className="w-4 h-4 shrink-0 text-[#c5a059]" />
+                            <span>Servicios</span>
+                          </button>
 
-                      <button
-                        onClick={() => { onNavigate('admin'); setAdminTab('professionals'); setShowSidebar(false); }}
-                        className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
-                          currentView === 'admin' && adminTab === 'professionals'
-                            ? 'bg-[#c5a059]/10 text-[#c5a059] border-[#c5a059]/30 shadow-sm'
-                            : 'text-[#e2e8f0]/70 hover:text-[#c5a059] hover:bg-white/5 border-transparent'
-                        }`}
-                      >
-                        <Users className="w-4 h-4 shrink-0 text-[#c5a059]" />
-                        <span>Profesionales</span>
-                      </button>
+                          <button
+                            onClick={() => { onNavigate('admin'); setAdminTab('professionals'); setShowSidebar(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
+                              currentView === 'admin' && adminTab === 'professionals'
+                                ? 'bg-[#c5a059]/10 text-[#c5a059] border-[#c5a059]/30 shadow-sm'
+                                : 'text-[#e2e8f0]/70 hover:text-[#c5a059] hover:bg-white/5 border-transparent'
+                            }`}
+                          >
+                            <Users className="w-4 h-4 shrink-0 text-[#c5a059]" />
+                            <span>Profesionales</span>
+                          </button>
 
-                      <button
-                        onClick={() => { onNavigate('admin'); setAdminTab('info'); setShowSidebar(false); }}
-                        className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
-                          currentView === 'admin' && adminTab === 'info'
-                            ? 'bg-[#c5a059]/10 text-[#c5a059] border-[#c5a059]/30 shadow-sm'
-                            : 'text-[#e2e8f0]/70 hover:text-[#c5a059] hover:bg-white/5 border-transparent'
-                        }`}
-                      >
-                        <Settings className="w-4 h-4 shrink-0 text-[#c5a059]" />
-                        <span>Perfil & Certificados</span>
-                      </button>
+                          <button
+                            onClick={() => { onNavigate('admin'); setAdminTab('info'); setShowSidebar(false); }}
+                            className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer border text-left ${
+                              currentView === 'admin' && adminTab === 'info'
+                                ? 'bg-[#c5a059]/10 text-[#c5a059] border-[#c5a059]/30 shadow-sm'
+                                : 'text-[#e2e8f0]/70 hover:text-[#c5a059] hover:bg-white/5 border-transparent'
+                            }`}
+                          >
+                            <Settings className="w-4 h-4 shrink-0 text-[#c5a059]" />
+                            <span>Perfil & Certificados</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
 

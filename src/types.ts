@@ -1,13 +1,13 @@
 // Definiciones de tipos para la plataforma de gestión de citas
 
-export type UserRole = 'superadmin' | 'admin' | 'client';
+export type UserRole = 'superadmin' | 'admin' | 'professional' | 'client';
 
 export interface Profile {
   id: string;
   email: string;
   full_name: string;
   role: UserRole;
-  business_id?: string; // Solo si es admin de un negocio
+  business_id?: string; // Solo si es admin o profesional de un negocio
   phone?: string;
   created_at: string;
 }
@@ -110,4 +110,20 @@ export interface BusinessAnalytics {
   popularServices: { serviceName: string; count: number; revenue: number }[];
   professionalLoad: { professionalName: string; count: number }[];
   appointmentsByStatus: { status: string; count: number }[];
+}
+
+export interface ClientHistoryRecord {
+  id: string;
+  business_id: string;
+  client_id: string;
+  client_name: string;
+  appointment_id?: string;
+  consultation_date: string;
+  reason: string;          // Motivo de consulta
+  clinical_picture: string; // Cuadro clínico
+  diagnosis: string;        // Diagnóstico
+  treatment: string;        // Tratamiento
+  prescription: string;     // Receta
+  created_at: string;
+  created_by_name: string;  // Nombre de quien atendió (profesional/admin)
 }

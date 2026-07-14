@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import { db } from '../lib/db';
 import { 
-  Business, Service, Professional, Appointment, Category, BusinessAnalytics, Certificate, Profile 
+  Business, Service, Professional, Appointment, Category, BusinessAnalytics, Certificate, Profile, ClientHistoryRecord 
 } from '../types';
 import { downloadTicket } from '../lib/ticket';
 
@@ -45,6 +45,20 @@ export default function AdminPanel({
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [analytics, setAnalytics] = useState<BusinessAnalytics | null>(null);
   const [profilesList, setProfilesList] = useState<Profile[]>([]);
+
+  // Estados de Historial Clínico y Filtros de Citas
+  const [aptFilter, setAptFilter] = useState<'all' | 'pending' | 'attended'>('all');
+  const [attendingApt, setAttendingApt] = useState<Appointment | null>(null);
+  const [clientHistory, setClientHistory] = useState<ClientHistoryRecord[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyForm, setHistoryForm] = useState({
+    reason: '',
+    clinical_picture: '',
+    diagnosis: '',
+    treatment: '',
+    prescription: ''
+  });
 
   // Estados para formularios/ediciones
   const [editingService, setEditingService] = useState<Partial<Service> | null>(null);
@@ -95,25 +109,41 @@ export default function AdminPanel({
     try {
       const allBiz = await db.getBusinesses();
       setAllBusinesses(allBiz);
-      const current = allBiz.find(b => b.id === businessId);
+      
+      let activeId = businessId;
+      let current = allBiz.find(b => b.id === activeId);
+      
+      // Si el ID de negocio no se encuentra y hay negocios en la base de datos,
+      // seleccionamos el primero disponible de forma transparente.
+      if (!current && allBiz.length > 0) {
+        activeId = allBiz[0].id;
+        current = allBiz[0];
+        if (onChangeBusinessId) {
+          onChangeBusinessId(activeId);
+        }
+      }
+      
       if (current) {
         setBusiness(current);
         setBizForm(current);
+      } else {
+        setBusiness(null);
+        setBizForm({});
       }
 
-      const srvs = await db.getServices(businessId);
+      const srvs = await db.getServices(activeId);
       setServices(srvs);
 
       const cats = await db.getCategories();
       setCategories(cats);
 
-      const profs = await db.getProfessionals(businessId);
+      const profs = await db.getProfessionals(activeId);
       setProfessionals(profs);
 
-      const apts = await db.getAppointments(undefined, 'admin', businessId);
+      const apts = await db.getAppointments(currentUser.role === 'professional' ? currentUser.id : undefined, currentUser.role, activeId);
       setAppointments(apts);
 
-      const stats = await db.getAnalytics(businessId);
+      const stats = await db.getAnalytics(activeId);
       setAnalytics(stats);
 
       const allProfs = await db.getProfiles();
@@ -328,6 +358,65 @@ export default function AdminPanel({
       await loadBusinessData();
     } catch (err) {
       console.error('Error al actualizar cita:', err);
+    }
+  };
+
+  const handleOpenAttendModal = async (apt: Appointment) => {
+    setAttendingApt(apt);
+    setLoadingHistory(true);
+    setHistoryForm({
+      reason: '',
+      clinical_picture: '',
+      diagnosis: '',
+      treatment: '',
+      prescription: ''
+    });
+    try {
+      const histories = await db.getClientHistory(apt.client_id, businessId);
+      setClientHistory(histories);
+    } catch (err) {
+      console.error('Error al cargar historial del cliente:', err);
+    } finally {
+      setLoadingHistory(false);
+      setShowHistoryModal(true);
+    }
+  };
+
+  const handleSaveClientHistory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!attendingApt) return;
+
+    const { reason, clinical_picture, diagnosis, treatment, prescription } = historyForm;
+
+    if (!reason || !clinical_picture || !diagnosis || !treatment || !prescription) {
+      alert('Por favor completa todos los campos de la ficha clínica.');
+      return;
+    }
+
+    try {
+      await db.createClientHistory({
+        client_id: attendingApt.client_id,
+        client_name: attendingApt.client_name || 'Paciente',
+        consultation_date: attendingApt.appointment_date,
+        reason: reason,
+        clinical_picture: clinical_picture,
+        diagnosis: diagnosis,
+        treatment: treatment,
+        prescription: prescription,
+        business_id: businessId,
+        appointment_id: attendingApt.id,
+        created_by_name: currentUser.full_name
+      });
+
+      await db.updateAppointmentStatus(attendingApt.id, 'attended');
+
+      alert('¡Ficha clínica registrada y cita marcada como atendida exitosamente!');
+      setShowHistoryModal(false);
+      setAttendingApt(null);
+      await loadBusinessData();
+    } catch (err) {
+      console.error('Error al guardar ficha clínica:', err);
+      alert('Hubo un error al guardar la ficha clínica.');
     }
   };
 
@@ -558,128 +647,194 @@ export default function AdminPanel({
         )}
 
         {/* TAB 2: GESTIÓN DE CITAS */}
-        {activeTab === 'appointments' && (
-          <div className="bg-[#1c2128] border border-[#2d333b] rounded-xl shadow-xl overflow-hidden animate-in fade-in duration-200">
-            <div className="p-5 border-b border-[#2d333b] bg-[#0f1115] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div>
-                <h3 className="font-display italic font-bold text-base text-[#c5a059]">Agenda Sincronizada Multi-Profesional</h3>
-                <p className="text-xs text-[#e2e8f0]/60 mt-1">Monitorea y cambia estados en tiempo real. Los cambios activan avisos automatizados.</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowManualBookingModal(true)}
-                  className="bg-[#c5a059] hover:bg-[#b08d4a] text-[#0f1115] text-xs font-bold uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1 shadow-md transition-all cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Cita Manual</span>
-                </button>
-                <span className="bg-[#c5a059]/10 text-[#c5a059] border border-[#c5a059]/30 text-[9px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center">
-                  Sincronizado
-                </span>
-              </div>
-            </div>
+        {activeTab === 'appointments' && (() => {
+          const filteredAppointments = appointments.filter(apt => {
+            if (aptFilter === 'pending') {
+              return apt.status === 'pending' || apt.status === 'confirmed' || apt.status === 'reserved';
+            }
+            if (aptFilter === 'attended') {
+              return apt.status === 'attended' || apt.status === 'completed';
+            }
+            return true; // 'all'
+          });
 
-            {appointments.length === 0 ? (
-              <div className="p-12 text-center text-[#e2e8f0]/40 bg-[#1c2128]">
-                <CalendarIcon className="w-12 h-12 text-[#2d333b] mx-auto mb-3" />
-                <span className="text-sm font-semibold">No hay citas registradas para tu negocio.</span>
+          return (
+            <div className="bg-[#1c2128] border border-[#2d333b] rounded-xl shadow-xl overflow-hidden animate-in fade-in duration-200">
+              <div className="p-5 border-b border-[#2d333b] bg-[#0f1115] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h3 className="font-display italic font-bold text-base text-[#c5a059]">
+                    {currentUser.role === 'professional' ? 'Mis Citas Registradas' : 'Agenda Sincronizada Multi-Profesional'}
+                  </h3>
+                  <p className="text-xs text-[#e2e8f0]/60 mt-1">
+                    {currentUser.role === 'professional' 
+                      ? 'Revisa tus citas asignadas, atiende a tus pacientes y gestiona sus fichas clínicas.' 
+                      : 'Monitorea y cambia estados en tiempo real. Los cambios activan avisos automatizados.'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Filtros de Citas */}
+                  <div className="flex bg-[#0f1115] border border-[#2d333b] rounded-lg p-1">
+                    <button
+                      onClick={() => setAptFilter('all')}
+                      className={`px-3 py-1 rounded text-[10px] font-bold uppercase transition-all ${
+                        aptFilter === 'all'
+                          ? 'bg-[#c5a059] text-[#0f1115]'
+                          : 'text-[#e2e8f0]/60 hover:text-[#e2e8f0]'
+                      }`}
+                    >
+                      Todas
+                    </button>
+                    <button
+                      onClick={() => setAptFilter('pending')}
+                      className={`px-3 py-1 rounded text-[10px] font-bold uppercase transition-all ${
+                        aptFilter === 'pending'
+                          ? 'bg-[#c5a059] text-[#0f1115]'
+                          : 'text-[#e2e8f0]/60 hover:text-[#e2e8f0]'
+                      }`}
+                    >
+                      Pendientes
+                    </button>
+                    <button
+                      onClick={() => setAptFilter('attended')}
+                      className={`px-3 py-1 rounded text-[10px] font-bold uppercase transition-all ${
+                        aptFilter === 'attended'
+                          ? 'bg-[#c5a059] text-[#0f1115]'
+                          : 'text-[#e2e8f0]/60 hover:text-[#e2e8f0]'
+                      }`}
+                    >
+                      Atendidas
+                    </button>
+                  </div>
+
+                  {currentUser.role !== 'professional' && (
+                    <button
+                      onClick={() => setShowManualBookingModal(true)}
+                      className="bg-[#c5a059] hover:bg-[#b08d4a] text-[#0f1115] text-xs font-bold uppercase tracking-wider px-3.5 py-2 rounded-lg flex items-center gap-1 shadow-md transition-all cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Cita Manual</span>
+                    </button>
+                  )}
+                  <span className="bg-[#c5a059]/10 text-[#c5a059] border border-[#c5a059]/30 text-[9px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center">
+                    Sincronizado
+                  </span>
+                </div>
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-[#0f1115]/50 text-[10px] font-bold text-[#e2e8f0]/40 uppercase border-b border-[#2d333b]">
-                      <th className="p-4">Cliente</th>
-                      <th className="p-4">Servicio</th>
-                      <th className="p-4">Profesional</th>
-                      <th className="p-4">Fecha & Hora</th>
-                      <th className="p-4">Estado</th>
-                      <th className="p-4 text-right">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#2d333b] text-xs text-[#e2e8f0]/80">
-                    {appointments.map((apt) => (
-                      <tr key={apt.id} className="hover:bg-white/5 transition-colors">
-                        <td className="p-4 font-bold text-[#e2e8f0]">
-                          {apt.client_name}
-                          {apt.notes && (
-                            <span className="block text-[10px] text-[#e2e8f0]/50 font-normal mt-0.5 max-w-xs truncate" title={apt.notes}>
-                              📝 "{apt.notes}"
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-4">{apt.service_name}</td>
-                        <td className="p-4 font-medium text-[#c5a059]">{apt.professional_name}</td>
-                        <td className="p-4">
-                          <span className="font-semibold block text-[#e2e8f0]">{apt.appointment_date}</span>
-                          <span className="font-mono text-[#e2e8f0]/40 text-[10px]">{apt.start_time} - {apt.end_time}</span>
-                        </td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-1 rounded-full text-[9px] font-bold inline-block border ${
-                            apt.status === 'confirmed' || apt.status === 'reserved'
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                              : apt.status === 'completed' || apt.status === 'attended'
-                              ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                              : apt.status === 'cancelled'
-                              ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                              : 'bg-[#c5a059]/10 text-[#c5a059] border border-[#c5a059]/20'
-                          }`}>
-                            {apt.status === 'confirmed' || apt.status === 'reserved' ? 'RESERVADO' :
-                             apt.status === 'completed' || apt.status === 'attended' ? 'ATENDIDO' :
-                             apt.status.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right">
-                          <div className="flex gap-1.5 justify-end">
-                            <button
-                              onClick={() => downloadTicket(apt)}
-                              className="bg-[#c5a059]/10 text-[#c5a059] border border-[#c5a059]/30 p-1.5 rounded hover:bg-[#c5a059] hover:text-[#0f1115] transition-colors"
-                              title="Descargar Ticket Oficial de Cita"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
 
-                            {apt.status === 'pending' && (
-                              <button
-                                onClick={() => handleUpdateAptStatus(apt.id, 'reserved')}
-                                className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded hover:bg-emerald-500/20 flex items-center gap-1 text-[10px] font-bold"
-                                title="Acordar pago y Reservar"
-                              >
-                                <Check className="w-3 h-3" />
-                                <span>Reservar</span>
-                              </button>
-                            )}
-                            
-                            {(apt.status === 'confirmed' || apt.status === 'reserved') && (
-                              <button
-                                onClick={() => handleUpdateAptStatus(apt.id, 'attended')}
-                                className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-1 rounded hover:bg-blue-500/20 flex items-center gap-1 text-[10px] font-bold"
-                                title="Marcar como Atendido"
-                              >
-                                <Check className="w-3 h-3" />
-                                <span>Atendido</span>
-                              </button>
-                            )}
-
-                            {apt.status !== 'cancelled' && apt.status !== 'completed' && apt.status !== 'attended' && (
-                              <button
-                                onClick={() => handleUpdateAptStatus(apt.id, 'cancelled')}
-                                className="bg-red-500/10 text-red-400 border border-red-500/20 p-1 rounded hover:bg-red-500/20"
-                                title="Cancelar Cita"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
+              {filteredAppointments.length === 0 ? (
+                <div className="p-12 text-center text-[#e2e8f0]/40 bg-[#1c2128]">
+                  <CalendarIcon className="w-12 h-12 text-[#2d333b] mx-auto mb-3" />
+                  <span className="text-sm font-semibold">No se encontraron citas con el filtro actual.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-[#0f1115]/50 text-[10px] font-bold text-[#e2e8f0]/40 uppercase border-b border-[#2d333b]">
+                        <th className="p-4">Cliente / Paciente</th>
+                        <th className="p-4">Servicio</th>
+                        <th className="p-4">Profesional</th>
+                        <th className="p-4">Fecha & Hora</th>
+                        <th className="p-4">Estado</th>
+                        <th className="p-4 text-right">Acciones</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+                    </thead>
+                    <tbody className="divide-y divide-[#2d333b] text-xs text-[#e2e8f0]/80">
+                      {filteredAppointments.map((apt) => (
+                        <tr key={apt.id} className="hover:bg-white/5 transition-colors">
+                          <td className="p-4 font-bold text-[#e2e8f0]">
+                            {apt.client_name}
+                            {apt.notes && (
+                              <span className="block text-[10px] text-[#e2e8f0]/50 font-normal mt-0.5 max-w-xs truncate" title={apt.notes}>
+                                📝 "{apt.notes}"
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4">{apt.service_name}</td>
+                          <td className="p-4 font-medium text-[#c5a059]">{apt.professional_name}</td>
+                          <td className="p-4">
+                            <span className="font-semibold block text-[#e2e8f0]">{apt.appointment_date}</span>
+                            <span className="font-mono text-[#e2e8f0]/40 text-[10px]">{apt.start_time} - {apt.end_time}</span>
+                          </td>
+                          <td className="p-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[9px] font-bold inline-block border ${
+                              apt.status === 'confirmed' || apt.status === 'reserved'
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                : apt.status === 'completed' || apt.status === 'attended'
+                                ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                : apt.status === 'cancelled'
+                                ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                                : 'bg-[#c5a059]/10 text-[#c5a059] border border-[#c5a059]/20'
+                            }`}>
+                              {apt.status === 'confirmed' || apt.status === 'reserved' ? 'RESERVADO' :
+                               apt.status === 'completed' || apt.status === 'attended' ? 'ATENDIDO' :
+                               apt.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="p-4 text-right">
+                            <div className="flex gap-1.5 justify-end items-center">
+                              {/* BOTÓN ATENDER / FICHA CLÍNICA */}
+                              {(currentUser.role === 'professional' || currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+                                <button
+                                  onClick={() => handleOpenAttendModal(apt)}
+                                  className="bg-blue-500/15 text-blue-300 border border-blue-500/35 px-2.5 py-1 rounded hover:bg-blue-500 hover:text-[#0f1115] transition-all flex items-center gap-1 text-[10px] font-bold cursor-pointer font-mono"
+                                  title="Atender cita y ver/agregar historia clínica"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-blue-400" />
+                                  <span>{apt.status === 'attended' || apt.status === 'completed' ? 'Ver Ficha' : 'Atender / Ficha'}</span>
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => downloadTicket(apt)}
+                                className="bg-[#c5a059]/10 text-[#c5a059] border border-[#c5a059]/30 p-1.5 rounded hover:bg-[#c5a059] hover:text-[#0f1115] transition-colors"
+                                title="Descargar Ticket Oficial de Cita"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+
+                              {currentUser.role !== 'professional' && apt.status === 'pending' && (
+                                <button
+                                  onClick={() => handleUpdateAptStatus(apt.id, 'reserved')}
+                                  className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded hover:bg-emerald-500/20 flex items-center gap-1 text-[10px] font-bold"
+                                  title="Acordar pago y Reservar"
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>Reservar</span>
+                                </button>
+                              )}
+                              
+                              {currentUser.role !== 'professional' && (apt.status === 'confirmed' || apt.status === 'reserved') && (
+                                <button
+                                  onClick={() => handleUpdateAptStatus(apt.id, 'attended')}
+                                  className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-1 rounded hover:bg-blue-500/20 flex items-center gap-1 text-[10px] font-bold"
+                                  title="Marcar como Atendido"
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>Atendido</span>
+                                </button>
+                              )}
+
+                              {apt.status !== 'cancelled' && apt.status !== 'completed' && apt.status !== 'attended' && (
+                                <button
+                                  onClick={() => handleUpdateAptStatus(apt.id, 'cancelled')}
+                                  className="bg-red-500/10 text-red-400 border border-red-500/20 p-1 rounded hover:bg-red-500/20"
+                                  title="Cancelar Cita"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* TAB 3: GESTIÓN DE SERVICIOS */}
         {activeTab === 'services' && (
@@ -1816,6 +1971,217 @@ export default function AdminPanel({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* MODAL DE HISTORIA CLÍNICA Y ATENCIÓN (NUEVO) */}
+      {showHistoryModal && attendingApt && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#16191f] rounded-2xl shadow-2xl border border-[#2d333b] max-w-4xl w-full overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="bg-[#0f1115] border-b border-[#2d333b] p-5 flex justify-between items-start">
+              <div>
+                <span className="text-[10px] font-bold text-[#c5a059] uppercase tracking-widest block mb-1 font-mono">Ficha de Paciente</span>
+                <h3 className="font-display italic font-bold text-lg text-white">Atención & Historial Clínico</h3>
+                <p className="text-[#e2e8f0]/50 text-[11px] mt-0.5">
+                  Paciente: <span className="font-bold text-[#e2e8f0]">{attendingApt.client_name}</span> &bull; Cita: <span className="font-mono text-[#c5a059]">{attendingApt.appointment_date} ({attendingApt.start_time})</span>
+                </p>
+              </div>
+              <button 
+                onClick={() => { setShowHistoryModal(false); setAttendingApt(null); }}
+                className="text-[#e2e8f0]/40 hover:text-white p-1 rounded-lg border border-transparent hover:border-[#2d333b] transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Dos Columnas: Izquierda (Historial Previo), Derecha (Formulario de Atención Nueva si no está atendida) */}
+            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-[#13161c]">
+              
+              {/* HISTORIAL PREVIO (Columna Izquierda) */}
+              <div className="lg:col-span-6 flex flex-col space-y-4">
+                <span className="text-xs font-bold text-[#c5a059] uppercase tracking-wider block border-b border-[#2d333b] pb-2">
+                  Historial Clínico del Paciente ({clientHistory.length})
+                </span>
+
+                {loadingHistory ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-12 text-[#e2e8f0]/40">
+                    <Activity className="w-8 h-8 animate-pulse text-[#c5a059] mb-2" />
+                    <span className="text-xs font-mono">Consultando base de datos...</span>
+                  </div>
+                ) : clientHistory.length === 0 ? (
+                  <div className="flex-grow flex flex-col items-center justify-center p-8 bg-[#0f1115]/50 border border-dashed border-[#2d333b] rounded-xl text-[#e2e8f0]/40">
+                    <ClipboardList className="w-10 h-10 text-[#2d333b] mb-2" />
+                    <span className="text-xs font-semibold text-center">Este paciente no registra consultas previas en el establecimiento.</span>
+                  </div>
+                ) : (
+                  <div className="space-y-4 overflow-y-auto pr-1 max-h-[50vh]">
+                    {clientHistory.map((item, idx) => (
+                      <div key={item.id || idx} className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-4 space-y-3 shadow-lg hover:border-[#c5a059]/20 transition-all">
+                        <div className="flex justify-between items-center border-b border-[#2d333b]/60 pb-1.5">
+                          <span className="text-xs font-bold text-[#c5a059] font-mono">{item.consultation_date}</span>
+                          <span className="text-[10px] text-[#e2e8f0]/40 font-mono">Atendido por {item.created_by_name || 'Profesional'}</span>
+                        </div>
+                        <div className="space-y-2 text-xs leading-relaxed text-[#e2e8f0]/80">
+                          <div><strong className="text-[#c5a059]">Motivo de consulta:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{item.reason}</p></div>
+                          <div><strong className="text-[#c5a059]">Cuadro clínico:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{item.clinical_picture}</p></div>
+                          <div><strong className="text-[#c5a059]">Diagnóstico:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{item.diagnosis}</p></div>
+                          <div><strong className="text-[#c5a059]">Tratamiento:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{item.treatment}</p></div>
+                          <div className="bg-[#0f1115]/80 p-2.5 rounded-lg border border-[#2d333b]/40 mt-1">
+                            <strong className="text-[#c5a059] block text-[10px] uppercase font-mono tracking-wider mb-1">Receta / Prescripción:</strong>
+                            <p className="text-[#e2e8f0]/70 font-mono text-[11px] whitespace-pre-wrap">{item.prescription}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* FORMULARIO DE CONSULTA ACTUAL (Columna Derecha) */}
+              <div className="lg:col-span-6 flex flex-col space-y-4">
+                <span className="text-xs font-bold text-[#c5a059] uppercase tracking-wider block border-b border-[#2d333b] pb-2">
+                  {attendingApt.status === 'attended' || attendingApt.status === 'completed' ? 'Ficha Registrada de la Consulta' : 'Registrar Atención de Consulta Actual'}
+                </span>
+
+                {attendingApt.status === 'attended' || attendingApt.status === 'completed' ? (() => {
+                  // Mostrar el registro específico de esta cita
+                  const matchedRecord = clientHistory.find(h => h.appointment_id === attendingApt.id);
+                  if (matchedRecord) {
+                    return (
+                      <div className="bg-[#1c2128] border border-blue-500/20 rounded-xl p-5 space-y-4 shadow-xl">
+                        <div className="flex items-center gap-2 text-blue-400">
+                          <Check className="w-4 h-4" />
+                          <span className="text-xs font-bold uppercase tracking-wider">Cita Atendida & Completada</span>
+                        </div>
+                        <div className="space-y-3 text-xs text-[#e2e8f0]/90 leading-relaxed">
+                          <div><strong className="text-[#c5a059]">Motivo de consulta:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{matchedRecord.reason}</p></div>
+                          <div><strong className="text-[#c5a059]">Cuadro clínico:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{matchedRecord.clinical_picture}</p></div>
+                          <div><strong className="text-[#c5a059]">Diagnóstico:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{matchedRecord.diagnosis}</p></div>
+                          <div><strong className="text-[#c5a059]">Tratamiento:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{matchedRecord.treatment}</p></div>
+                          <div className="bg-[#0f1115] p-3 rounded-lg border border-[#2d333b]">
+                            <strong className="text-[#c5a059] block text-[10px] uppercase font-mono tracking-wider mb-1">Receta / Prescripción:</strong>
+                            <p className="text-[#e2e8f0]/70 font-mono text-[11px] whitespace-pre-wrap">{matchedRecord.prescription}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div className="bg-[#1c2128]/50 border border-[#2d333b] rounded-xl p-5 text-center text-[#e2e8f0]/40 flex flex-col justify-center items-center py-12">
+                        <Info className="w-8 h-8 text-[#2d333b] mb-2" />
+                        <span className="text-xs font-semibold">Cita atendida externamente o sin ficha adjunta registrada.</span>
+                      </div>
+                    );
+                  }
+                })() : (
+                  <form onSubmit={handleSaveClientHistory} className="space-y-4 flex-1 flex flex-col justify-between">
+                    <div className="space-y-3.5 overflow-y-auto max-h-[50vh] pr-1">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-bold text-[#e2e8f0]/40 uppercase">Nombre del Paciente</label>
+                          <input
+                            type="text"
+                            disabled
+                            value={attendingApt.client_name || ''}
+                            className="w-full text-xs bg-[#0f1115]/50 border border-[#2d333b] text-[#e2e8f0]/50 rounded-lg p-2.5 cursor-not-allowed font-semibold"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-bold text-[#e2e8f0]/40 uppercase">Fecha de Consulta</label>
+                          <input
+                            type="text"
+                            disabled
+                            value={attendingApt.appointment_date || ''}
+                            className="w-full text-xs bg-[#0f1115]/50 border border-[#2d333b] text-[#e2e8f0]/50 rounded-lg p-2.5 cursor-not-allowed font-semibold"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-bold text-[#e2e8f0]/80 uppercase">Motivo de Consulta</label>
+                        <textarea
+                          required
+                          rows={2}
+                          value={historyForm.reason}
+                          onChange={(e) => setHistoryForm({ ...historyForm, reason: e.target.value })}
+                          placeholder="Indique los síntomas principales expuestos por el paciente..."
+                          className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none placeholder-[#e2e8f0]/20"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-bold text-[#e2e8f0]/80 uppercase">Cuadro Clínico</label>
+                        <textarea
+                          required
+                          rows={2}
+                          value={historyForm.clinical_picture}
+                          onChange={(e) => setHistoryForm({ ...historyForm, clinical_picture: e.target.value })}
+                          placeholder="Detalles del examen físico, signos vitales o estado de ingreso..."
+                          className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none placeholder-[#e2e8f0]/20"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-bold text-[#e2e8f0]/80 uppercase">Diagnóstico</label>
+                          <textarea
+                            required
+                            rows={2}
+                            value={historyForm.diagnosis}
+                            onChange={(e) => setHistoryForm({ ...historyForm, diagnosis: e.target.value })}
+                            placeholder="Diagnóstico conclusivo o preliminar..."
+                            className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none placeholder-[#e2e8f0]/20"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-bold text-[#e2e8f0]/80 uppercase">Tratamiento</label>
+                          <textarea
+                            required
+                            rows={2}
+                            value={historyForm.treatment}
+                            onChange={(e) => setHistoryForm({ ...historyForm, treatment: e.target.value })}
+                            placeholder="Indicaciones, terapia o reposo recomendado..."
+                            className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none placeholder-[#e2e8f0]/20"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-bold text-emerald-400 uppercase font-mono tracking-wider">Receta / Prescripción de Medicamentos</label>
+                        <textarea
+                          required
+                          rows={3}
+                          value={historyForm.prescription}
+                          onChange={(e) => setHistoryForm({ ...historyForm, prescription: e.target.value })}
+                          placeholder="Fármaco - Dosis - Frecuencia - Duración&#10;Ej. Paracetamol 500mg, 1 tableta cada 8 horas por 3 días."
+                          className="w-full text-xs bg-[#0f1115] border border-emerald-500/20 text-emerald-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none placeholder-emerald-500/20 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-[#2d333b]/60 flex justify-end gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => { setShowHistoryModal(false); setAttendingApt(null); }}
+                        className="text-xs font-bold text-[#e2e8f0]/60 hover:text-[#e2e8f0] px-3.5 py-2.5 rounded-lg transition-colors cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-blue-500/10 cursor-pointer flex items-center gap-1.5 font-mono"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>Completar Atención & Registrar</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+            </div>
+          </div>
         </div>
       )}
 

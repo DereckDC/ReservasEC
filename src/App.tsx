@@ -33,7 +33,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const syncRoute = (bizList: Business[]) => {
+  const syncRoute = (bizList: Business[], userOverride?: Profile | null) => {
     // Intentar leer primero el pathname convencional para URLs limpias (/nombredelnegocio)
     let path = window.location.pathname.replace(/^\/|\/$/g, '');
     
@@ -46,13 +46,27 @@ export default function App() {
       setCurrentView('catalog');
       return;
     }
+
+    const activeUser = userOverride !== undefined ? userOverride : currentUser;
     
     if (path === 'admin') {
+      if (!activeUser || (activeUser.role !== 'admin' && activeUser.role !== 'superadmin')) {
+        alert("Acceso Denegado\nNo cuentas con privilegios de Administrador de Negocio ni Súper Administrador.");
+        window.history.replaceState({ view: 'catalog' }, '', '/');
+        setCurrentView('catalog');
+        return;
+      }
       setCurrentView('admin');
       return;
     }
     
     if (path === 'superadmin') {
+      if (!activeUser || activeUser.role !== 'superadmin') {
+        alert("Acceso Denegado\nNo cuentas con privilegios de Súper Administrador Global.");
+        window.history.replaceState({ view: 'catalog' }, '', '/');
+        setCurrentView('catalog');
+        return;
+      }
       setCurrentView('superadmin');
       return;
     }
@@ -81,22 +95,29 @@ export default function App() {
       const bizList = await db.getBusinesses();
       setBusinesses(bizList);
 
+      if (bizList.length > 0) {
+        setSuperadminSelectedBusinessId(bizList[0].id);
+      }
+
       // Asignar un usuario por defecto si no hay ninguno activo para facilitar la navegación del evaluador
       const savedUser = localStorage.getItem('sincrocitas_current_user');
       const wasLoggedOut = localStorage.getItem('sincrocitas_logged_out') === 'true';
+      let activeUser: Profile | null = null;
       if (savedUser) {
-        setCurrentUser(JSON.parse(savedUser));
+        activeUser = JSON.parse(savedUser);
+        setCurrentUser(activeUser);
       } else if (!wasLoggedOut) {
         // Por defecto, cliente demo para iniciar de inmediato de forma interactiva (solo si no cerró sesión explícitamente)
         const profiles = await db.getProfiles();
         const demoClient = profiles.find(p => p.role === 'client');
         if (demoClient) {
+          activeUser = demoClient;
           setCurrentUser(demoClient);
         }
       }
 
       // Sincronizar ruta inicial con la lista cargada
-      syncRoute(bizList);
+      syncRoute(bizList, activeUser);
     } catch (err) {
       console.error('Error al inicializar aplicación:', err);
     } finally {
@@ -106,12 +127,57 @@ export default function App() {
 
   useEffect(() => {
     loadInitialState();
+
+    // Comprobar si la sesión previa expiró por inactividad
+    const expired = localStorage.getItem('sincrocitas_session_expired');
+    if (expired === 'true') {
+      localStorage.removeItem('sincrocitas_session_expired');
+      alert('Tu sesión ha expirado por inactividad para proteger tu información. Por favor, inicia sesión de nuevo.');
+    }
   }, []);
+
+  // Detector de inactividad para cierre de sesión automático (Orientado a producción real)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let timeoutId: any;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      
+      timeoutId = setTimeout(() => {
+        // Cierre de sesión automático por inactividad
+        handleSetCurrentUser(null);
+        localStorage.setItem('sincrocitas_session_expired', 'true');
+        // Recargar la página
+        window.location.reload();
+      }, 15 * 60 * 1000); // 15 minutos de inactividad (estándar de producción)
+    };
+
+    // Eventos para detectar cualquier interacción del usuario
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+    
+    // Iniciar temporizador
+    resetTimer();
+
+    // Registrar escuchas de eventos
+    events.forEach(event => {
+      window.addEventListener(event, resetTimer, { passive: true });
+    });
+
+    // Limpieza al desmontar o cuando cambie el usuario
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(event => {
+        window.removeEventListener(event, resetTimer);
+      });
+    };
+  }, [currentUser]);
 
   // Escuchar eventos popstate y hashchange para una navegación totalmente sincronizada y fluida
   useEffect(() => {
     const handleNavigationEvent = () => {
-      syncRoute(businesses);
+      syncRoute(businesses, currentUser);
     };
     window.addEventListener('popstate', handleNavigationEvent);
     window.addEventListener('hashchange', handleNavigationEvent);
@@ -119,7 +185,7 @@ export default function App() {
       window.removeEventListener('popstate', handleNavigationEvent);
       window.removeEventListener('hashchange', handleNavigationEvent);
     };
-  }, [businesses]);
+  }, [businesses, currentUser]);
 
   // Guardar usuario activo en localstorage para persistencia de sesión ligera
   const handleSetCurrentUser = (user: Profile | null) => {
@@ -134,6 +200,17 @@ export default function App() {
   };
 
   const handleNavigate = (view: string) => {
+    // Si intentan ir a admin y no tienen privilegios, alertar y desviar
+    if (view === 'admin' && (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'superadmin' && currentUser.role !== 'professional'))) {
+      alert("Acceso Denegado\nNo cuentas con privilegios de Administrador ni Profesional.");
+      view = 'catalog';
+    }
+    // Si intentan ir a superadmin y no tienen privilegios, alertar y desviar
+    if (view === 'superadmin' && (!currentUser || currentUser.role !== 'superadmin')) {
+      alert("Acceso Denegado\nNo cuentas con privilegios de Súper Administrador Global.");
+      view = 'catalog';
+    }
+
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -219,7 +296,7 @@ export default function App() {
             )}
 
             {/* VISTA: PANEL DE ADMINISTRADOR DE NEGOCIO */}
-            {currentView === 'admin' && currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin') && (
+            {currentView === 'admin' && currentUser && (currentUser.role === 'admin' || currentUser.role === 'superadmin' || currentUser.role === 'professional') && (
               <AdminPanel 
                 businessId={currentUser.role === 'superadmin' ? superadminSelectedBusinessId : (currentUser.business_id || 'biz-1')}
                 currentUser={currentUser}
@@ -231,11 +308,11 @@ export default function App() {
             )}
 
             {/* CONTROL DE SEGURIDAD EXCESO DE PRIVILEGIO */}
-            {currentView === 'admin' && (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'superadmin')) && (
+            {currentView === 'admin' && (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'superadmin' && currentUser.role !== 'professional')) && (
               <div className="max-w-xl mx-auto px-4 py-20 text-center space-y-4">
                 <ShieldAlert className="w-12 h-12 text-red-600 mx-auto" />
                 <h2 className="font-display font-bold text-xl text-slate-900">Acceso Denegado</h2>
-                <p className="text-xs text-slate-500">No cuentas con privilegios de Administrador de Negocio ni Súper Administrador. Usa el simulador en la cabecera para cambiar tu rol.</p>
+                <p className="text-xs text-slate-500">No cuentas con privilegios de Administrador ni Profesional.</p>
                 <button onClick={() => handleNavigate('catalog')} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer">
                   Ir al Inicio
                 </button>
@@ -256,7 +333,7 @@ export default function App() {
               <div className="max-w-xl mx-auto px-4 py-20 text-center space-y-4">
                 <ShieldAlert className="w-12 h-12 text-red-600 mx-auto" />
                 <h2 className="font-display font-bold text-xl text-slate-900">Acceso Denegado</h2>
-                <p className="text-xs text-slate-500">No cuentas con privilegios de Súper Administrador Global. Usa el simulador en la cabecera para cambiar tu rol.</p>
+                <p className="text-xs text-slate-500">No cuentas con privilegios de Súper Administrador Global.</p>
                 <button onClick={() => handleNavigate('catalog')} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-xs font-semibold">
                   Ir al Inicio
                 </button>
