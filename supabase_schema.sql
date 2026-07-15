@@ -70,6 +70,7 @@ CREATE TABLE public.services (
     duration_minutes INT NOT NULL DEFAULT 30 CHECK (duration_minutes > 0),
     price NUMERIC(10,2) NOT NULL DEFAULT 0.00 CHECK (price >= 0),
     image_url VARCHAR(1000),
+    image_urls TEXT[] DEFAULT '{}'::text[] NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
@@ -84,6 +85,7 @@ CREATE TABLE public.professionals (
     work_start_time VARCHAR(5) DEFAULT '09:00' NOT NULL,
     work_end_time VARCHAR(5) DEFAULT '18:00' NOT NULL,
     work_days INT[] DEFAULT '{1,2,3,4,5}'::int[] NOT NULL,
+    service_ids UUID[] DEFAULT '{}'::uuid[] NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 

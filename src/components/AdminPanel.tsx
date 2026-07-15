@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, Calendar as CalendarIcon, ClipboardList, Briefcase, Users, Info, Plus, Edit2, Trash2, 
   Check, X, Award, MapPin, Phone, Star, DollarSign, Activity, Settings, PieChart as PieIcon, Download,
-  Image as ImageIcon, FileText
+  Image as ImageIcon, FileText, Upload, Link
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
@@ -13,6 +13,17 @@ import {
   Business, Service, Professional, Appointment, Category, BusinessAnalytics, Certificate, Profile, ClientHistoryRecord 
 } from '../types';
 import { downloadTicket } from '../lib/ticket';
+
+const AVATAR_PRESETS = [
+  'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=150&h=150&fit=crop'
+];
 
 interface AdminPanelProps {
   businessId: string;
@@ -65,6 +76,7 @@ export default function AdminPanel({
   const [editingProfessional, setEditingProfessional] = useState<Partial<Professional> | null>(null);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showProfessionalModal, setShowProfessionalModal] = useState(false);
+  const [avatarTab, setAvatarTab] = useState<'presets' | 'upload' | 'url'>('presets');
 
   // Cita Manual
   const [showManualBookingModal, setShowManualBookingModal] = useState(false);
@@ -1356,7 +1368,7 @@ export default function AdminPanel({
               <p className="text-[#e2e8f0]/60 text-xs mt-1">Configura los detalles comerciales del servicio.</p>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4 max-h-[60vh] md:max-h-[70vh] overflow-y-auto pr-1">
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-[#e2e8f0]/80 uppercase">Nombre</label>
                 <input
@@ -1375,7 +1387,7 @@ export default function AdminPanel({
                   onChange={(e) => setEditingService({ ...editingService, category_id: e.target.value })}
                   className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none"
                 >
-                  <option value="" className="bg-[#16191f] text-[#e2e8f0]">Selecciona Categoría</option>
+                  <option value="" className="bg-[#16191f] text-[#e2e8f0]">Sin Categoría (Opcional)</option>
                   {categories.map((c) => (
                     <option key={c.id} value={c.id} className="bg-[#16191f] text-[#e2e8f0]">{c.name}</option>
                   ))}
@@ -1861,14 +1873,126 @@ export default function AdminPanel({
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-[#e2e8f0]/80 uppercase">Avatar URL</label>
-                <input
-                  type="url"
-                  value={editingProfessional.avatar_url || ''}
-                  onChange={(e) => setEditingProfessional({ ...editingProfessional, avatar_url: e.target.value })}
-                  className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none placeholder-[#e2e8f0]/30"
-                />
+              <div className="space-y-3 bg-[#0f1115] p-4 rounded-xl border border-[#2d333b]">
+                <div className="flex items-center gap-4">
+                  <div className="relative shrink-0">
+                    {editingProfessional.avatar_url ? (
+                      <img 
+                        src={editingProfessional.avatar_url} 
+                        alt="Preview" 
+                        referrerPolicy="no-referrer"
+                        className="w-14 h-14 rounded-full object-cover border-2 border-[#c5a059] shadow-lg bg-[#16191f]"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-[#16191f] border border-[#2d333b] flex items-center justify-center text-[#e2e8f0]/40">
+                        <ImageIcon className="w-6 h-6" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-xs font-bold text-[#e2e8f0] uppercase tracking-wide">Imagen de Perfil</label>
+                    <p className="text-[10px] text-[#e2e8f0]/50 truncate">Elige o sube la foto del profesional.</p>
+                  </div>
+                </div>
+
+                <div className="flex border-b border-[#2d333b] text-center">
+                  <button
+                    type="button"
+                    onClick={() => setAvatarTab('presets')}
+                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b-2 transition-all ${
+                      avatarTab === 'presets'
+                        ? 'border-[#c5a059] text-[#c5a059]'
+                        : 'border-transparent text-[#e2e8f0]/40 hover:text-[#e2e8f0]/80'
+                    }`}
+                  >
+                    Almacén
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAvatarTab('upload')}
+                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b-2 transition-all ${
+                      avatarTab === 'upload'
+                        ? 'border-[#c5a059] text-[#c5a059]'
+                        : 'border-transparent text-[#e2e8f0]/40 hover:text-[#e2e8f0]/80'
+                    }`}
+                  >
+                    Subir Imagen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAvatarTab('url')}
+                    className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider border-b-2 transition-all ${
+                      avatarTab === 'url'
+                        ? 'border-[#c5a059] text-[#c5a059]'
+                        : 'border-transparent text-[#e2e8f0]/40 hover:text-[#e2e8f0]/80'
+                    }`}
+                  >
+                    Enlace URL
+                  </button>
+                </div>
+
+                {/* Contenido según la pestaña */}
+                {avatarTab === 'presets' && (
+                  <div className="grid grid-cols-4 gap-2 pt-1">
+                    {AVATAR_PRESETS.map((url, idx) => {
+                      const isSelected = editingProfessional.avatar_url === url;
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setEditingProfessional({ ...editingProfessional, avatar_url: url })}
+                          className={`relative rounded-full aspect-square overflow-hidden border-2 transition-all hover:scale-105 active:scale-95 ${
+                            isSelected ? 'border-[#c5a059] ring-2 ring-[#c5a059]/30' : 'border-transparent hover:border-[#2d333b]'
+                          }`}
+                        >
+                          <img 
+                            src={url} 
+                            alt={`Preset ${idx + 1}`} 
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover" 
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {avatarTab === 'upload' && (
+                  <div className="space-y-2 pt-1">
+                    <label className="flex flex-col items-center justify-center border border-dashed border-[#2d333b] hover:border-[#c5a059]/40 bg-[#16191f] rounded-lg p-4 cursor-pointer hover:bg-white/[0.02] transition-all">
+                      <Upload className="w-5 h-5 text-[#c5a059] mb-1" />
+                      <span className="text-[10px] text-[#e2e8f0]/80 font-medium text-center">Seleccionar imagen del dispositivo</span>
+                      <span className="text-[9px] text-[#e2e8f0]/40 mt-0.5 text-center">Formatos sugeridos: JPG, PNG, WEBP</span>
+                      <input 
+                        type="file" 
+                        accept="image/*"
+                        className="hidden" 
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setEditingProfessional({ ...editingProfessional, avatar_url: reader.result as string });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {avatarTab === 'url' && (
+                  <div className="space-y-1.5 pt-1">
+                    <input
+                      type="url"
+                      placeholder="https://ejemplo.com/tu-foto.jpg"
+                      value={editingProfessional.avatar_url || ''}
+                      onChange={(e) => setEditingProfessional({ ...editingProfessional, avatar_url: e.target.value })}
+                      className="w-full text-xs bg-[#16191f] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none placeholder-[#e2e8f0]/30"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">

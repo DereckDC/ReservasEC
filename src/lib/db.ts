@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { 
-  Business, Profile, Service, Category, Professional, Appointment, Review, BusinessAnalytics, UserRole, Certificate 
+  Business, Profile, Service, Category, Professional, Appointment, Review, BusinessAnalytics, UserRole, Certificate, ClientHistoryRecord
 } from '../types';
 
 // Obtener las credenciales de Supabase de las variables de entorno
@@ -267,7 +267,20 @@ export const db = {
 
     if (isSupabaseConfigured && supabase && isValidUUID(service.business_id) && (!service.category_id || isValidUUID(service.category_id))) {
       try {
-        const { data, error } = await supabase.from('services').insert(service).select().single();
+        const payload: any = {
+          business_id: service.business_id,
+          name: service.name,
+          description: service.description,
+          duration_minutes: service.duration_minutes,
+          price: service.price,
+          image_url: service.image_url,
+          image_urls: service.image_urls || []
+        };
+        if (service.category_id && isValidUUID(service.category_id)) {
+          payload.category_id = service.category_id;
+        }
+
+        const { data, error } = await supabase.from('services').insert(payload).select().single();
         if (error) throw error;
         return data;
       } catch (err) {
@@ -283,7 +296,19 @@ export const db = {
   async updateService(id: string, service: Partial<Service>): Promise<Service> {
     if (isSupabaseConfigured && supabase && isValidUUID(id) && (!service.business_id || isValidUUID(service.business_id)) && (!service.category_id || isValidUUID(service.category_id))) {
       try {
-        const { data, error } = await supabase.from('services').update(service).eq('id', id).select().single();
+        const payload: any = {};
+        if (service.business_id !== undefined) payload.business_id = service.business_id;
+        if (service.name !== undefined) payload.name = service.name;
+        if (service.description !== undefined) payload.description = service.description;
+        if (service.duration_minutes !== undefined) payload.duration_minutes = service.duration_minutes;
+        if (service.price !== undefined) payload.price = service.price;
+        if (service.image_url !== undefined) payload.image_url = service.image_url;
+        if (service.image_urls !== undefined) payload.image_urls = service.image_urls;
+        if (service.category_id !== undefined) {
+          payload.category_id = isValidUUID(service.category_id) ? service.category_id : null;
+        }
+
+        const { data, error } = await supabase.from('services').update(payload).eq('id', id).select().single();
         if (error) throw error;
         return data;
       } catch (err) {
@@ -346,7 +371,18 @@ export const db = {
 
     if (isSupabaseConfigured && supabase && isValidUUID(professional.business_id)) {
       try {
-        const { data, error } = await supabase.from('professionals').insert(professional).select().single();
+        const payload: any = {
+          business_id: professional.business_id,
+          name: professional.name,
+          email: professional.email,
+          specialty: professional.specialty,
+          avatar_url: professional.avatar_url,
+          work_start_time: professional.work_start_time,
+          work_end_time: professional.work_end_time,
+          work_days: professional.work_days,
+          service_ids: professional.service_ids || []
+        };
+        const { data, error } = await supabase.from('professionals').insert(payload).select().single();
         if (error) throw error;
         return data;
       } catch (err) {
@@ -362,7 +398,18 @@ export const db = {
   async updateProfessional(id: string, professional: Partial<Professional>): Promise<Professional> {
     if (isSupabaseConfigured && supabase && isValidUUID(id) && (!professional.business_id || isValidUUID(professional.business_id))) {
       try {
-        const { data, error } = await supabase.from('professionals').update(professional).eq('id', id).select().single();
+        const payload: any = {};
+        if (professional.business_id !== undefined) payload.business_id = professional.business_id;
+        if (professional.name !== undefined) payload.name = professional.name;
+        if (professional.email !== undefined) payload.email = professional.email;
+        if (professional.specialty !== undefined) payload.specialty = professional.specialty;
+        if (professional.avatar_url !== undefined) payload.avatar_url = professional.avatar_url;
+        if (professional.work_start_time !== undefined) payload.work_start_time = professional.work_start_time;
+        if (professional.work_end_time !== undefined) payload.work_end_time = professional.work_end_time;
+        if (professional.work_days !== undefined) payload.work_days = professional.work_days;
+        if (professional.service_ids !== undefined) payload.service_ids = professional.service_ids;
+
+        const { data, error } = await supabase.from('professionals').update(payload).eq('id', id).select().single();
         if (error) throw error;
         return data;
       } catch (err) {
@@ -602,7 +649,18 @@ export const db = {
 
     if (isSupabaseConfigured && supabase && isValidUUID(appointment.business_id) && isValidUUID(appointment.client_id) && isValidUUID(appointment.service_id) && isValidUUID(appointment.professional_id)) {
       try {
-        const { data, error } = await supabase.from('appointments').insert(appointment).select().single();
+        const payload = {
+          business_id: appointment.business_id,
+          client_id: appointment.client_id,
+          service_id: appointment.service_id,
+          professional_id: appointment.professional_id,
+          appointment_date: appointment.appointment_date,
+          start_time: appointment.start_time,
+          end_time: appointment.end_time,
+          notes: appointment.notes,
+          status: appointment.status
+        };
+        const { data, error } = await supabase.from('appointments').insert(payload).select().single();
         if (error) throw error;
         
         // Enviar correo de notificación (servidor)
@@ -723,7 +781,15 @@ export const db = {
 
     if (isSupabaseConfigured && supabase && isValidUUID(review.business_id) && isValidUUID(review.client_id)) {
       try {
-        const { data, error } = await supabase.from('reviews').insert(review).select().single();
+        const payload = {
+          business_id: review.business_id,
+          client_id: review.client_id,
+          client_name: review.client_name,
+          rating: review.rating,
+          comment: review.comment,
+          is_verified: true
+        };
+        const { data, error } = await supabase.from('reviews').insert(payload).select().single();
         if (error) throw error;
         return data;
       } catch (err) {
@@ -881,7 +947,20 @@ export const db = {
 
     if (isSupabaseConfigured && supabase && isValidUUID(record.business_id) && isValidUUID(record.client_id)) {
       try {
-        const { data, error } = await supabase.from('client_histories').insert(record).select().single();
+        const payload = {
+          business_id: record.business_id,
+          client_id: record.client_id,
+          client_name: record.client_name,
+          appointment_id: record.appointment_id && isValidUUID(record.appointment_id) ? record.appointment_id : null,
+          consultation_date: record.consultation_date,
+          reason: record.reason,
+          clinical_picture: record.clinical_picture,
+          diagnosis: record.diagnosis,
+          treatment: record.treatment,
+          prescription: record.prescription,
+          created_by_name: record.created_by_name
+        };
+        const { data, error } = await supabase.from('client_histories').insert(payload).select().single();
         if (error) throw error;
         return data;
       } catch (err) {
