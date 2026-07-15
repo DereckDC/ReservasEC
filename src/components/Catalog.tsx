@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Phone, Star, Sparkles, Building, ArrowRight, BookOpen, MessageSquare } from 'lucide-react';
+import { Search, MapPin, Phone, Star, Sparkles, Building, ArrowRight, BookOpen, MessageSquare, Image as ImageIcon } from 'lucide-react';
 import { db } from '../lib/db';
 import { Business, Category } from '../types';
 
@@ -142,21 +142,34 @@ export default function Catalog({ onSelectBusiness }: CatalogProps) {
                 className="bg-[#1c2128] border border-[#2d333b] rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:border-[#c5a059]/40 transition-all flex flex-col justify-between group cursor-pointer"
               >
                 {/* Portada Mini */}
-                <div className="h-40 relative overflow-hidden bg-[#0f1115]">
-                  <img 
-                    src={biz.cover_url || "https://images.unsplash.com/photo-1562322140-8baeececf3df?w=500&fit=crop"} 
-                    alt={biz.name}
-                    className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500 opacity-80"
-                  />
+                <div className="h-40 relative overflow-hidden bg-[#0f1115] flex items-center justify-center">
+                  {biz.cover_url ? (
+                    <img 
+                      src={biz.cover_url} 
+                      alt={biz.name}
+                      className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500 opacity-80"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-[#16191f] to-[#0f1115] flex flex-col items-center justify-center text-[#e2e8f0]/30 p-4">
+                      <ImageIcon className="w-7 h-7 text-[#c5a059]/40 mb-1" />
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-[#c5a059]/60">Sin foto de portada</span>
+                    </div>
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#1c2128] via-transparent to-transparent" />
                   
                   {/* Logo Superpuesto */}
-                  <img 
-                    src={biz.logo_url || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=80&fit=crop"} 
-                    alt={`${biz.name} logo`}
-                    className="absolute bottom-3 left-3 w-10 h-10 rounded-lg object-cover border border-[#2d333b] bg-[#16191f] shadow-lg"
-                    referrerPolicy="no-referrer"
-                  />
+                  {biz.logo_url ? (
+                    <img 
+                      src={biz.logo_url} 
+                      alt={`${biz.name} logo`}
+                      className="absolute bottom-3 left-3 w-10 h-10 rounded-lg object-cover border border-[#2d333b] bg-[#16191f] shadow-lg"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="absolute bottom-3 left-3 w-10 h-10 rounded-lg border border-[#2d333b] bg-[#16191f] shadow-lg flex items-center justify-center text-[#c5a059] text-sm font-extrabold uppercase select-none">
+                      {biz.name.charAt(0)}
+                    </div>
+                  )}
 
                   {/* Categoría */}
                   <span className="absolute top-3 right-3 bg-[#0f1115]/80 backdrop-blur-sm text-[#c5a059] border border-[#c5a059]/30 text-[9px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">

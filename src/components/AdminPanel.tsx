@@ -178,7 +178,7 @@ export default function AdminPanel({
       if (editingService.id) {
         await db.updateService(editingService.id, {
           ...editingService,
-          image_url: editingService.image_url || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400&fit=crop',
+          image_url: editingService.image_url || '',
           image_urls: editingService.image_urls || []
         });
       } else {
@@ -189,7 +189,7 @@ export default function AdminPanel({
           duration_minutes: editingService.duration_minutes || 30,
           price: editingService.price || 0.00,
           category_id: editingService.category_id,
-          image_url: editingService.image_url || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400&fit=crop',
+          image_url: editingService.image_url || '',
           image_urls: editingService.image_urls || []
         });
       }

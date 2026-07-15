@@ -50,8 +50,8 @@ export default function SuperAdminPanel({
     slug: '',
     description: '',
     category: '',
-    logo_url: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=150&h=150&fit=crop',
-    cover_url: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800&h=400&fit=crop',
+    logo_url: '',
+    cover_url: '',
     phone: '',
     address: '',
     gallery_urls: [],
@@ -71,8 +71,8 @@ export default function SuperAdminPanel({
       slug: biz.slug,
       description: biz.description || '',
       category: biz.category,
-      logo_url: biz.logo_url || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=150&h=150&fit=crop',
-      cover_url: biz.cover_url || 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800&h=400&fit=crop',
+      logo_url: biz.logo_url || '',
+      cover_url: biz.cover_url || '',
       phone: biz.phone,
       address: biz.address,
       gallery_urls: biz.gallery_urls || [],
@@ -92,8 +92,8 @@ export default function SuperAdminPanel({
       slug: '',
       description: '',
       category: categories[0]?.name || 'Otros',
-      logo_url: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=150&h=150&fit=crop',
-      cover_url: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800&h=400&fit=crop',
+      logo_url: '',
+      cover_url: '',
       phone: '',
       address: '',
       gallery_urls: [],
@@ -197,13 +197,13 @@ export default function SuperAdminPanel({
         alert('¡Nueva Empresa / Negocio Creado con Éxito!');
       }
 
-      setNewBiz({
+       setNewBiz({
         name: '',
         slug: '',
         description: '',
         category: categories[0]?.name || 'Otros',
-        logo_url: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=150&h=150&fit=crop',
-        cover_url: 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800&h=400&fit=crop',
+        logo_url: '',
+        cover_url: '',
         phone: '',
         address: '',
         gallery_urls: [],
@@ -529,13 +529,15 @@ export default function SuperAdminPanel({
                             ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                             : u.role === 'admin'
                             ? 'bg-[#c5a059]/10 text-[#c5a059] border border-[#c5a059]/20'
+                            : u.role === 'professional'
+                            ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                             : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                         }`}>
                           {u.role.toUpperCase()}
                         </span>
                       </td>
                       <td className="p-4">
-                        {u.role === 'admin' && u.business_id ? (
+                        {(u.role === 'admin' || u.role === 'professional') && u.business_id ? (
                           <span className="font-bold text-[#c5a059]">
                             {businesses.find(b => b.id === u.business_id)?.name || 'Negocio No Encontrado'}
                           </span>
@@ -549,21 +551,22 @@ export default function SuperAdminPanel({
                             value={u.role}
                             onChange={(e) => {
                               const newRole = e.target.value as UserRole;
-                              const bizId = newRole === 'admin' ? (businesses[0]?.id || undefined) : undefined;
+                              const bizId = (newRole === 'admin' || newRole === 'professional') ? (businesses[0]?.id || undefined) : undefined;
                               handleChangeRole(u.id, newRole, bizId);
                             }}
                             className="text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded p-1.5 focus:ring-1 focus:ring-[#c5a059] focus:outline-none"
                           >
                             <option value="client" className="bg-[#16191f]">Convertir en Cliente</option>
+                            <option value="professional" className="bg-[#16191f]">Convertir en Profesional</option>
                             <option value="admin" className="bg-[#16191f]">Convertir en Admin de Negocio</option>
                             <option value="superadmin" className="bg-[#16191f]">Convertir en Super Admin</option>
                           </select>
 
-                          {u.role === 'admin' && (
+                          {(u.role === 'admin' || u.role === 'professional') && (
                             <select
                               value={u.business_id || ''}
                               onChange={(e) => {
-                                handleChangeRole(u.id, 'admin', e.target.value || undefined);
+                                handleChangeRole(u.id, u.role, e.target.value || undefined);
                               }}
                               className="text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded p-1.5 focus:ring-1 focus:ring-[#c5a059] focus:outline-none"
                             >

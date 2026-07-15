@@ -104,7 +104,20 @@ export default function BusinessDetail({
           ...(business.gallery_urls || [])
         ].filter(Boolean) as string[];
 
-        if (allPhotos.length === 0) return null;
+        if (allPhotos.length === 0) {
+          return (
+            <div className="space-y-3" id="top-gallery-carousel">
+              <div className="flex items-center gap-1.5">
+                <ImageIcon className="w-4 h-4 text-[#c5a059]" />
+                <span className="text-[10px] font-bold text-[#c5a059] uppercase tracking-wider block">Galería del Establecimiento</span>
+              </div>
+              <div className="relative aspect-video sm:aspect-[21/9] w-full rounded-2xl overflow-hidden border border-[#2d333b] bg-gradient-to-br from-[#1c2128] to-[#0f1115] flex flex-col items-center justify-center text-[#e2e8f0]/30 shadow-lg">
+                <ImageIcon className="w-10 h-10 text-[#c5a059]/40 mb-2" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#c5a059]/60">Sin fotos cargadas</span>
+              </div>
+            </div>
+          );
+        }
 
         const safeIndex = currentPhotoIndex % allPhotos.length;
 
@@ -193,12 +206,18 @@ export default function BusinessDetail({
       <div className="relative rounded-2xl overflow-hidden border border-[#2d333b] shadow-xl bg-[#1c2128] p-6 sm:p-8">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="flex items-center gap-4">
-            <img 
-              src={business.logo_url || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=150&h=150&fit=crop"} 
-              alt={`${business.name} logo`} 
-              className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover border-2 border-[#2d333b] bg-[#16191f] shadow-2xl shrink-0"
-              referrerPolicy="no-referrer"
-            />
+            {business.logo_url ? (
+              <img 
+                src={business.logo_url} 
+                alt={`${business.name} logo`} 
+                className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover border-2 border-[#2d333b] bg-[#16191f] shadow-2xl shrink-0"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl border-2 border-[#2d333b] bg-gradient-to-br from-[#16191f] to-[#0f1115] shadow-2xl shrink-0 flex items-center justify-center text-3xl font-bold uppercase text-[#c5a059] select-none">
+                {business.name.charAt(0)}
+              </div>
+            )}
             <div className="space-y-1.5">
               <span className="bg-[#c5a059] text-[#0f1115] text-[9px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
                 {business.category}
@@ -266,11 +285,17 @@ export default function BusinessDetail({
           /* PASO 1 MINIMIZADO */
           <div className="bg-[#0f1115] border border-[#c5a059]/60 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg animate-in fade-in duration-250">
             <div className="flex items-start sm:items-center gap-4">
-              <img 
-                src={selectedService.image_url || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=200&fit=crop"} 
-                alt={selectedService.name}
-                className="w-14 h-14 rounded-lg object-cover border border-[#2d333b] shrink-0"
-              />
+              {selectedService.image_url ? (
+                <img 
+                  src={selectedService.image_url} 
+                  alt={selectedService.name}
+                  className="w-14 h-14 rounded-lg object-cover border border-[#2d333b] shrink-0"
+                />
+              ) : (
+                <div className="w-14 h-14 rounded-lg border border-[#2d333b] bg-gradient-to-br from-[#16191f] to-[#0f1115] shrink-0 flex items-center justify-center text-[#c5a059] select-none">
+                  <ImageIcon className="w-6 h-6" />
+                </div>
+              )}
               <div className="space-y-0.5">
                 <span className="text-[9px] uppercase font-bold text-[#c5a059] tracking-wider block">✓ Paso 1 Completado — Servicio Seleccionado</span>
                 <h4 className="font-display italic font-bold text-base text-[#e2e8f0]">{selectedService.name}</h4>
@@ -316,13 +341,20 @@ export default function BusinessDetail({
                     }`}
                   >
                     <div>
-                      {/* Imagen del Servicio */}
-                      <div className="h-40 w-full relative bg-[#0f1115] group/img">
-                        <img 
-                          src={activeServiceImages[srv.id] || srv.image_url || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400&fit=crop"} 
-                          alt={srv.name}
-                          className="w-full h-full object-cover opacity-80"
-                        />
+                       {/* Imagen del Servicio */}
+                      <div className="h-40 w-full relative bg-[#0f1115] group/img flex items-center justify-center">
+                        {(activeServiceImages[srv.id] || srv.image_url) ? (
+                          <img 
+                            src={activeServiceImages[srv.id] || srv.image_url} 
+                            alt={srv.name}
+                            className="w-full h-full object-cover opacity-80"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-[#16191f] to-[#0f1115] flex flex-col items-center justify-center text-[#e2e8f0]/30 p-4">
+                            <ImageIcon className="w-8 h-8 text-[#c5a059]/40 mb-1" />
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#c5a059]/60">Sin foto de servicio</span>
+                          </div>
+                        )}
                         {isSelected && (
                           <div className="absolute top-2 right-2 bg-[#c5a059] text-[#0f1115] text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5 uppercase tracking-wide shadow-md">
                             <Check className="w-2.5 h-2.5" /> Seleccionado
@@ -332,8 +364,8 @@ export default function BusinessDetail({
                         {/* Thumbnails if multiple images exist */}
                         {srv.image_urls && srv.image_urls.length > 0 && (
                           <div className="absolute bottom-2 left-2 right-2 flex gap-1 justify-center opacity-0 group-hover/img:opacity-100 transition-opacity duration-200 bg-black/50 backdrop-blur-xs p-1 rounded-lg">
-                            {[srv.image_url || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400&fit=crop", ...srv.image_urls].map((url, idx) => {
-                              const isCurrent = (activeServiceImages[srv.id] || srv.image_url || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400&fit=crop") === url;
+                            {[srv.image_url || "", ...srv.image_urls].filter(Boolean).map((url, idx) => {
+                              const isCurrent = (activeServiceImages[srv.id] || srv.image_url || "") === url;
                               return (
                                 <button
                                   key={idx}
