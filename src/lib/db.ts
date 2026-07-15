@@ -328,11 +328,28 @@ export const db = {
   async deleteService(id: string): Promise<void> {
     if (isSupabaseConfigured && supabase && isValidUUID(id)) {
       try {
+        // 1. Obtener todas las citas vinculadas a este servicio
+        const { data: apts, error: fetchAptsErr } = await supabase.from('appointments').select('id').eq('service_id', id);
+        if (fetchAptsErr) throw fetchAptsErr;
+        
+        const aptIds = apts?.map(a => a.id) || [];
+        if (aptIds.length > 0) {
+          // 2. Desvincular de historiales clínicos para evitar restricción FK
+          const { error: histErr } = await supabase.from('client_histories').update({ appointment_id: null }).in('appointment_id', aptIds);
+          if (histErr) throw histErr;
+          
+          // 3. Eliminar las citas asociadas
+          const { error: deleteAptsErr } = await supabase.from('appointments').delete().in('id', aptIds);
+          if (deleteAptsErr) throw deleteAptsErr;
+        }
+
+        // 4. Eliminar el servicio
         const { error } = await supabase.from('services').delete().eq('id', id);
         if (error) throw error;
         return;
       } catch (err) {
-        console.warn('Supabase deleteService fallido, usando local:', err);
+        console.error('Error al eliminar servicio en Supabase:', err);
+        throw err;
       }
     }
     let list: Service[] = JSON.parse(localStorage.getItem('db_services') || '[]');
@@ -380,7 +397,8 @@ export const db = {
           work_start_time: professional.work_start_time,
           work_end_time: professional.work_end_time,
           work_days: professional.work_days,
-          service_ids: professional.service_ids || []
+          service_ids: professional.service_ids || [],
+          user_id: professional.user_id || null
         };
         const { data, error } = await supabase.from('professionals').insert(payload).select().single();
         if (error) throw error;
@@ -408,6 +426,7 @@ export const db = {
         if (professional.work_end_time !== undefined) payload.work_end_time = professional.work_end_time;
         if (professional.work_days !== undefined) payload.work_days = professional.work_days;
         if (professional.service_ids !== undefined) payload.service_ids = professional.service_ids;
+        if (professional.user_id !== undefined) payload.user_id = professional.user_id || null;
 
         const { data, error } = await supabase.from('professionals').update(payload).eq('id', id).select().single();
         if (error) throw error;
@@ -429,11 +448,28 @@ export const db = {
   async deleteProfessional(id: string): Promise<void> {
     if (isSupabaseConfigured && supabase && isValidUUID(id)) {
       try {
+        // 1. Obtener todas las citas vinculadas a este profesional
+        const { data: apts, error: fetchAptsErr } = await supabase.from('appointments').select('id').eq('professional_id', id);
+        if (fetchAptsErr) throw fetchAptsErr;
+        
+        const aptIds = apts?.map(a => a.id) || [];
+        if (aptIds.length > 0) {
+          // 2. Desvincular de historiales clínicos para evitar restricción FK
+          const { error: histErr } = await supabase.from('client_histories').update({ appointment_id: null }).in('appointment_id', aptIds);
+          if (histErr) throw histErr;
+          
+          // 3. Eliminar las citas asociadas
+          const { error: deleteAptsErr } = await supabase.from('appointments').delete().in('id', aptIds);
+          if (deleteAptsErr) throw deleteAptsErr;
+        }
+
+        // 4. Eliminar el profesional
         const { error } = await supabase.from('professionals').delete().eq('id', id);
         if (error) throw error;
         return;
       } catch (err) {
-        console.warn('Supabase deleteProfessional fallido, usando local:', err);
+        console.error('Error al eliminar profesional en Supabase:', err);
+        throw err;
       }
     }
     let list: Professional[] = JSON.parse(localStorage.getItem('db_professionals') || '[]');
@@ -566,6 +602,19 @@ export const db = {
           return apt;
         }));
 
+        if (role === 'professional' && businessId && userId) {
+          const professionals = await this.getProfessionals(businessId);
+          const profiles = await this.getProfiles();
+          const userProfile = profiles.find(u => u.id === userId);
+          let userProf = professionals.find(p => p.user_id === userId);
+          if (!userProf && userProfile) {
+            userProf = professionals.find(p => p.email && p.email.toLowerCase() === userProfile.email.toLowerCase());
+          }
+          if (userProf) {
+            return procesados.filter(apt => apt.professional_id === userProf.id);
+          }
+        }
+
         return procesados;
       } catch (err) {
         console.warn('Supabase getAppointments fallido, usando local:', err);
@@ -624,16 +673,18 @@ export const db = {
       return procesados.filter(apt => apt.business_id === businessId);
     }
     if (role === 'professional' && businessId && userId) {
-      // Intentar encontrar el profesional que coincide con este usuario por email
-      const profiles = await this.getProfiles();
-      const userProfile = profiles.find(u => u.id === userId);
-      const professionals = await this.getProfessionals();
-      const userProf = professionals.find(p => p.email && userProfile && p.email.toLowerCase() === userProfile.email.toLowerCase());
+      const profilesList = await this.getProfiles();
+      const userProfile = profilesList.find(u => u.id === userId);
+      const professionalsList = await this.getProfessionals(businessId);
+      let userProf = professionalsList.find(p => p.user_id === userId);
+      if (!userProf && userProfile) {
+        userProf = professionalsList.find(p => p.email && p.email.toLowerCase() === userProfile.email.toLowerCase());
+      }
       
       if (userProf) {
         return procesados.filter(apt => apt.business_id === businessId && apt.professional_id === userProf.id);
       } else {
-        // Fallback: si no coincide por email, mostramos todos los del negocio para que pueda atenderlos
+        // Fallback: si no coincide por email o user_id, mostramos todos los del negocio para que pueda atenderlos
         return procesados.filter(apt => apt.business_id === businessId);
       }
     }

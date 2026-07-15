@@ -86,6 +86,7 @@ CREATE TABLE public.professionals (
     work_end_time VARCHAR(5) DEFAULT '18:00' NOT NULL,
     work_days INT[] DEFAULT '{1,2,3,4,5}'::int[] NOT NULL,
     service_ids UUID[] DEFAULT '{}'::uuid[] NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
@@ -318,6 +319,7 @@ CREATE TRIGGER on_auth_user_created
 CREATE INDEX IF NOT EXISTS idx_businesses_slug ON public.businesses(slug);
 CREATE INDEX IF NOT EXISTS idx_services_business_id ON public.services(business_id);
 CREATE INDEX IF NOT EXISTS idx_professionals_business_id ON public.professionals(business_id);
+CREATE INDEX IF NOT EXISTS idx_professionals_user_id ON public.professionals(user_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_business_id ON public.appointments(business_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_client_id ON public.appointments(client_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_business_id ON public.reviews(business_id);

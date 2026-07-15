@@ -56,6 +56,14 @@ export default function AdminPanel({
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [analytics, setAnalytics] = useState<BusinessAnalytics | null>(null);
   const [profilesList, setProfilesList] = useState<Profile[]>([]);
+  const [allProfiles, setAllProfiles] = useState<Profile[]>([]);
+  const [professionalProfiles, setProfessionalProfiles] = useState<Profile[]>([]);
+  const [analyticsReviews, setAnalyticsReviews] = useState<any[]>([]);
+  const [analyticsStartDate, setAnalyticsStartDate] = useState<string>('');
+  const [analyticsEndDate, setAnalyticsEndDate] = useState<string>('');
+  const [analyticsServiceId, setAnalyticsServiceId] = useState<string>('all');
+  const [analyticsProfessionalId, setAnalyticsProfessionalId] = useState<string>('all');
+  const [datePreset, setDatePreset] = useState<string>('all');
 
   // Estados de Historial Clínico y Filtros de Citas
   const [aptFilter, setAptFilter] = useState<'all' | 'pending' | 'attended'>('all');
@@ -158,8 +166,13 @@ export default function AdminPanel({
       const stats = await db.getAnalytics(activeId);
       setAnalytics(stats);
 
+      const revs = await db.getReviews(activeId);
+      setAnalyticsReviews(revs);
+
       const allProfs = await db.getProfiles();
+      setAllProfiles(allProfs);
       setProfilesList(allProfs.filter(p => p.role === 'client'));
+      setProfessionalProfiles(allProfs.filter(p => p.role === 'professional' && (!p.business_id || p.business_id === activeId)));
     } catch (err) {
       console.error('Error al cargar datos del panel de administración:', err);
     }
@@ -168,6 +181,152 @@ export default function AdminPanel({
   useEffect(() => {
     loadBusinessData();
   }, [businessId]);
+
+  const handleApplyDatePreset = (preset: string) => {
+    setDatePreset(preset);
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    if (preset === 'all') {
+      setAnalyticsStartDate('');
+      setAnalyticsEndDate('');
+    } else if (preset === 'today') {
+      setAnalyticsStartDate(todayStr);
+      setAnalyticsEndDate(todayStr);
+    } else if (preset === '7days') {
+      const past = new Date();
+      past.setDate(today.getDate() - 7);
+      setAnalyticsStartDate(past.toISOString().split('T')[0]);
+      setAnalyticsEndDate(todayStr);
+    } else if (preset === '30days') {
+      const past = new Date();
+      past.setDate(today.getDate() - 30);
+      setAnalyticsStartDate(past.toISOString().split('T')[0]);
+      setAnalyticsEndDate(todayStr);
+    } else if (preset === 'this_month') {
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      setAnalyticsStartDate(startOfMonth.toISOString().split('T')[0]);
+      setAnalyticsEndDate(todayStr);
+    }
+  };
+
+  const filteredAnalytics = React.useMemo(() => {
+    if (!appointments) return null;
+
+    let filteredApts = [...appointments];
+
+    // 1. Filtrar por profesional
+    if (analyticsProfessionalId !== 'all') {
+      filteredApts = filteredApts.filter(a => a.professional_id === analyticsProfessionalId);
+    }
+
+    // 2. Filtrar por servicio
+    if (analyticsServiceId !== 'all') {
+      filteredApts = filteredApts.filter(a => a.service_id === analyticsServiceId);
+    }
+
+    // 3. Filtrar por fechas
+    if (analyticsStartDate) {
+      const start = new Date(analyticsStartDate);
+      start.setHours(0, 0, 0, 0);
+      filteredApts = filteredApts.filter(a => {
+        if (!a.date) return false;
+        const aptDate = new Date(a.date);
+        return aptDate >= start;
+      });
+    }
+
+    if (analyticsEndDate) {
+      const end = new Date(analyticsEndDate);
+      end.setHours(23, 59, 59, 999);
+      filteredApts = filteredApts.filter(a => {
+        if (!a.date) return false;
+        const aptDate = new Date(a.date);
+        return aptDate <= end;
+      });
+    }
+
+    // Calcular métricas
+    const totalAppointments = filteredApts.length;
+    const completedAppointments = filteredApts.filter(a => 
+      a && (a.status === 'completed' || a.status === 'confirmed' || a.status === 'reserved' || a.status === 'attended')
+    ).length;
+
+    let totalRevenue = 0;
+    filteredApts.forEach(a => {
+      if (a && a.status !== 'cancelled') {
+        const s = services.find(srv => srv && srv.id === a.service_id);
+        if (s) {
+          totalRevenue += Number(s.price);
+        }
+      }
+    });
+
+    // Calificaciones filtradas por fecha
+    let filteredReviews = [...analyticsReviews];
+    if (analyticsStartDate) {
+      const start = new Date(analyticsStartDate);
+      start.setHours(0, 0, 0, 0);
+      filteredReviews = filteredReviews.filter(r => new Date(r.created_at) >= start);
+    }
+    if (analyticsEndDate) {
+      const end = new Date(analyticsEndDate);
+      end.setHours(23, 59, 59, 999);
+      filteredReviews = filteredReviews.filter(r => new Date(r.created_at) <= end);
+    }
+
+    const averageRating = filteredReviews.length > 0 
+      ? Number((filteredReviews.reduce((sum, r) => sum + (r?.rating || 0), 0) / filteredReviews.length).toFixed(1))
+      : 5.0;
+
+    // Servicios populares
+    const serviceCounts: Record<string, { count: number; revenue: number }> = {};
+    filteredApts.forEach(a => {
+      if (a) {
+        const s = services.find(srv => srv && srv.id === a.service_id);
+        if (s) {
+          if (!serviceCounts[s.name]) {
+            serviceCounts[s.name] = { count: 0, revenue: 0 };
+          }
+          serviceCounts[s.name].count += 1;
+          if (a.status !== 'cancelled') {
+            serviceCounts[s.name].revenue += Number(s.price);
+          }
+        }
+      }
+    });
+
+    const popularServices = Object.entries(serviceCounts).map(([serviceName, info]) => ({
+      serviceName,
+      count: info.count,
+      revenue: info.revenue
+    })).sort((a, b) => b.count - a.count).slice(0, 5);
+
+    // Carga de profesionales
+    const profCounts: Record<string, number> = {};
+    filteredApts.forEach(a => {
+      if (a) {
+        const p = professionals.find(prof => prof && prof.id === a.professional_id);
+        if (p) {
+          profCounts[p.name] = (profCounts[p.name] || 0) + 1;
+        }
+      }
+    });
+
+    const professionalLoad = Object.entries(profCounts).map(([professionalName, count]) => ({
+      professionalName,
+      count
+    })).sort((a, b) => b.count - a.count);
+
+    return {
+      totalAppointments,
+      completedAppointments,
+      totalRevenue,
+      averageRating,
+      popularServices,
+      professionalLoad
+    };
+  }, [appointments, services, professionals, analyticsReviews, analyticsStartDate, analyticsEndDate, analyticsServiceId, analyticsProfessionalId]);
 
   // Manejadores para Servicios
   const handleSaveService = async (e: React.FormEvent) => {
@@ -206,8 +365,10 @@ export default function AdminPanel({
     try {
       await db.deleteService(id);
       await loadBusinessData();
-    } catch (err) {
+      alert('Servicio eliminado correctamente.');
+    } catch (err: any) {
       console.error('Error al eliminar servicio:', err);
+      alert('Error al eliminar el servicio: ' + (err.message || err));
     }
   };
 
@@ -217,6 +378,23 @@ export default function AdminPanel({
     if (!editingProfessional || !editingProfessional.name) return;
 
     try {
+      if (editingProfessional.user_id) {
+        const userToLink = allProfiles.find(u => u.id === editingProfessional.user_id);
+        if (userToLink) {
+          if (userToLink.role !== 'professional') {
+            if (currentUser.role !== 'superadmin') {
+              alert('Error: Solo el súper administrador puede cambiar el rol de un usuario o promoverlo.');
+              return;
+            }
+          } else if (userToLink.business_id && userToLink.business_id !== businessId) {
+            if (currentUser.role !== 'superadmin') {
+              alert('Error: Solo el súper administrador puede cambiar la asignación de negocio de un usuario.');
+              return;
+            }
+          }
+        }
+      }
+
       if (editingProfessional.id) {
         await db.updateProfessional(editingProfessional.id, editingProfessional);
       } else {
@@ -229,9 +407,19 @@ export default function AdminPanel({
           work_start_time: editingProfessional.work_start_time || '09:00',
           work_end_time: editingProfessional.work_end_time || '18:00',
           work_days: editingProfessional.work_days || [1, 2, 3, 4, 5],
-          service_ids: editingProfessional.service_ids || []
+          service_ids: editingProfessional.service_ids || [],
+          user_id: editingProfessional.user_id
         });
       }
+
+      // Si hay un usuario vinculado, actualizar su rol a 'professional' y asignarle el businessId
+      if (editingProfessional.user_id) {
+        const userToLink = allProfiles.find(u => u.id === editingProfessional.user_id);
+        if (userToLink && (userToLink.role !== 'professional' || userToLink.business_id !== businessId)) {
+          await db.updateProfileRole(editingProfessional.user_id, 'professional', businessId);
+        }
+      }
+
       setShowProfessionalModal(false);
       setEditingProfessional(null);
       await loadBusinessData();
@@ -245,8 +433,10 @@ export default function AdminPanel({
     try {
       await db.deleteProfessional(id);
       await loadBusinessData();
-    } catch (err) {
+      alert('Profesional eliminado correctamente.');
+    } catch (err: any) {
       console.error('Error al eliminar profesional:', err);
+      alert('Error al eliminar el profesional: ' + (err.message || err));
     }
   };
 
@@ -534,6 +724,114 @@ export default function AdminPanel({
         {/* TAB 1: ANALÍTICAS */}
         {activeTab === 'analytics' && analytics && (
           <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Panel de Filtros Avanzados para Analíticas */}
+            <div className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-5 shadow-xl space-y-4" id="analytics-filters">
+              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                <div>
+                  <h4 className="font-display italic font-bold text-sm text-[#c5a059]">Filtros de Análisis Operativo</h4>
+                  <p className="text-[11px] text-[#e2e8f0]/60 mt-0.5">Filtra las métricas de ingresos, citas y rendimiento por fechas, servicios o profesionales en tiempo real.</p>
+                </div>
+                {/* Botón de Limpieza */}
+                {(analyticsStartDate || analyticsEndDate || analyticsServiceId !== 'all' || analyticsProfessionalId !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setAnalyticsStartDate('');
+                      setAnalyticsEndDate('');
+                      setAnalyticsServiceId('all');
+                      setAnalyticsProfessionalId('all');
+                      setDatePreset('all');
+                    }}
+                    className="text-[10px] font-bold text-[#c5a059] bg-[#c5a059]/10 border border-[#c5a059]/30 hover:bg-[#c5a059] hover:text-[#0f1115] px-3 py-1.5 rounded transition-all flex items-center gap-1 cursor-pointer font-mono uppercase"
+                  >
+                    <X className="w-3 h-3" /> Limpiar Filtros
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Preajustes de Fecha */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#e2e8f0]/40 uppercase tracking-wider block">Rango Rápido</label>
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { id: 'all', label: 'Todo' },
+                      { id: 'today', label: 'Hoy' },
+                      { id: '7days', label: '7 Días' },
+                      { id: '30days', label: '30 Días' },
+                      { id: 'this_month', label: 'Este Mes' }
+                    ].map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => handleApplyDatePreset(p.id)}
+                        className={`text-[9px] font-bold uppercase px-2 py-1 rounded border transition-all ${
+                          datePreset === p.id
+                            ? 'bg-[#c5a059] text-[#0f1115] border-[#c5a059]'
+                            : 'bg-[#0f1115] text-[#e2e8f0]/60 border-[#2d333b] hover:text-[#e2e8f0] hover:border-[#c5a059]/40'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Selector de Fechas Manual */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#e2e8f0]/40 uppercase tracking-wider block">Rango Personalizado</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={analyticsStartDate}
+                      onChange={(e) => {
+                        setAnalyticsStartDate(e.target.value);
+                        setDatePreset('custom');
+                      }}
+                      className="w-full bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded p-1.5 text-xs focus:ring-1 focus:ring-[#c5a059] focus:outline-none font-mono"
+                    />
+                    <input
+                      type="date"
+                      value={analyticsEndDate}
+                      onChange={(e) => {
+                        setAnalyticsEndDate(e.target.value);
+                        setDatePreset('custom');
+                      }}
+                      className="w-full bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded p-1.5 text-xs focus:ring-1 focus:ring-[#c5a059] focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Filtrar por Servicio */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#e2e8f0]/40 uppercase tracking-wider block">Servicio Específico</label>
+                  <select
+                    value={analyticsServiceId}
+                    onChange={(e) => setAnalyticsServiceId(e.target.value)}
+                    className="w-full bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded p-2 text-xs focus:ring-1 focus:ring-[#c5a059] focus:outline-none"
+                  >
+                    <option value="all" className="bg-[#16191f]">Todos los servicios</option>
+                    {services.map(s => (
+                      <option key={s.id} value={s.id} className="bg-[#16191f]">{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 4. Filtrar por Profesional */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-[#e2e8f0]/40 uppercase tracking-wider block">Profesional Asignado</label>
+                  <select
+                    value={analyticsProfessionalId}
+                    onChange={(e) => setAnalyticsProfessionalId(e.target.value)}
+                    className="w-full bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded p-2 text-xs focus:ring-1 focus:ring-[#c5a059] focus:outline-none"
+                  >
+                    <option value="all" className="bg-[#16191f]">Todos los profesionales</option>
+                    {professionals.map(p => (
+                      <option key={p.id} value={p.id} className="bg-[#16191f]">{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
             {/* Tarjetas de Métricas Rápidas */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-[#1c2128] p-5 rounded-xl border border-[#2d333b] shadow-xl flex items-center gap-4">
@@ -542,7 +840,7 @@ export default function AdminPanel({
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-[#e2e8f0]/40 uppercase tracking-wider block">Citas Totales</span>
-                  <span className="text-2xl font-bold font-mono text-[#e2e8f0]">{analytics.totalAppointments}</span>
+                  <span className="text-2xl font-bold font-mono text-[#e2e8f0]">{(filteredAnalytics || analytics).totalAppointments}</span>
                 </div>
               </div>
 
@@ -552,7 +850,7 @@ export default function AdminPanel({
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-[#e2e8f0]/40 uppercase tracking-wider block">Realizadas / Activas</span>
-                  <span className="text-2xl font-bold font-mono text-[#e2e8f0]">{analytics.completedAppointments}</span>
+                  <span className="text-2xl font-bold font-mono text-[#e2e8f0]">{(filteredAnalytics || analytics).completedAppointments}</span>
                 </div>
               </div>
 
@@ -562,7 +860,7 @@ export default function AdminPanel({
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-[#e2e8f0]/40 uppercase tracking-wider block">Ingresos de Servicios</span>
-                  <span className="text-2xl font-bold font-mono text-[#c5a059]">${analytics.totalRevenue}</span>
+                  <span className="text-2xl font-bold font-mono text-[#c5a059]">${(filteredAnalytics || analytics).totalRevenue}</span>
                 </div>
               </div>
 
@@ -572,7 +870,7 @@ export default function AdminPanel({
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-[#e2e8f0]/40 uppercase tracking-wider block">Opinión Promedio</span>
-                  <span className="text-2xl font-bold font-mono text-[#e2e8f0]">{analytics.averageRating} ★</span>
+                  <span className="text-2xl font-bold font-mono text-[#e2e8f0]">{(filteredAnalytics || analytics).averageRating} ★</span>
                 </div>
               </div>
             </div>
@@ -586,14 +884,14 @@ export default function AdminPanel({
                   <span>Rendimiento e Ingreso por Servicio</span>
                 </span>
                 
-                {analytics.popularServices.length === 0 ? (
+                {(filteredAnalytics || analytics).popularServices.length === 0 ? (
                   <div className="h-64 flex items-center justify-center border border-dashed border-[#2d333b] rounded-lg bg-[#0f1115]/50">
                     <span className="text-xs text-[#e2e8f0]/40 font-mono">Sin datos operacionales suficientes</span>
                   </div>
                 ) : (
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={analytics.popularServices} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <BarChart data={(filteredAnalytics || analytics).popularServices} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#2d333b" vertical={false} />
                         <XAxis dataKey="serviceName" stroke="#e2e8f0" tick={{ fontSize: 9, fill: '#e2e8f0' }} />
                         <YAxis stroke="#e2e8f0" tick={{ fontSize: 9, fill: '#e2e8f0' }} />
@@ -614,7 +912,7 @@ export default function AdminPanel({
                   <span>Sincronización y Carga de Profesionales</span>
                 </span>
                 
-                {analytics.professionalLoad.length === 0 ? (
+                {(filteredAnalytics || analytics).professionalLoad.length === 0 ? (
                   <div className="h-64 flex items-center justify-center border border-dashed border-[#2d333b] rounded-lg bg-[#0f1115]/50">
                     <span className="text-xs text-[#e2e8f0]/40 font-mono">Sin datos operacionales suficientes</span>
                   </div>
@@ -624,7 +922,7 @@ export default function AdminPanel({
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
-                            data={analytics.professionalLoad}
+                            data={(filteredAnalytics || analytics).professionalLoad}
                             cx="50%"
                             cy="50%"
                             innerRadius={55}
@@ -633,7 +931,7 @@ export default function AdminPanel({
                             dataKey="count"
                             nameKey="professionalName"
                           >
-                            {analytics.professionalLoad.map((entry, index) => (
+                            {(filteredAnalytics || analytics).professionalLoad.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
                           </Pie>
@@ -643,7 +941,7 @@ export default function AdminPanel({
                     </div>
                     
                     <div className="w-full sm:w-1/2 space-y-2 mt-4 sm:mt-0 px-4">
-                      {analytics.professionalLoad.map((item, index) => (
+                      {(filteredAnalytics || analytics).professionalLoad.map((item, index) => (
                         <div key={item.professionalName} className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
                           <span className="text-xs font-semibold text-[#e2e8f0]/80 truncate flex-1">{item.professionalName}</span>
@@ -870,14 +1168,11 @@ export default function AdminPanel({
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="services-grid">
               {services.map((srv) => {
-                const cat = categories.find(c => c.id === srv.category_id);
                 return (
                   <div key={srv.id} className="bg-[#1c2128] border border-[#2d333b] p-5 rounded-xl shadow-xl flex flex-col justify-between space-y-4 hover:border-[#c5a059]/30 transition-all">
                     <div className="space-y-1.5">
                       <div className="flex justify-between items-start">
-                        <span className="bg-[#0f1115] text-[#c5a059] border border-[#2d333b] text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                          {cat ? cat.name : 'Sin Categoría'}
-                        </span>
+                        <span className="text-xs text-[#e2e8f0]/40 font-semibold">Servicio</span>
                         <span className="font-mono font-bold text-sm text-[#c5a059]">${srv.price}</span>
                       </div>
                       <h4 className="font-display italic font-bold text-sm text-[#e2e8f0]">{srv.name}</h4>
@@ -970,6 +1265,18 @@ export default function AdminPanel({
                       
                       <span className="block text-xs font-semibold text-[#c5a059]">{prof.specialty}</span>
                       <span className="block text-[11px] text-[#e2e8f0]/40 font-mono">{prof.email}</span>
+                      
+                      {prof.user_id ? (
+                        <div className="flex items-center gap-1.5 mt-1 text-[10px] text-[#22c55e]/90 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e]"></span>
+                          <span>Enlazado: {allProfiles.find(u => u.id === prof.user_id)?.full_name || 'Cargando...'}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 mt-1 text-[10px] text-yellow-500/80 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>
+                          <span>Sin cuenta de acceso enlazada</span>
+                        </div>
+                      )}
                       
                       <div className="border-t border-[#2d333b] pt-2 mt-2">
                         <span className="block text-[9px] text-[#e2e8f0]/40 uppercase font-bold tracking-wider mb-1">Servicios Enlazados</span>
@@ -1378,20 +1685,6 @@ export default function AdminPanel({
                   onChange={(e) => setEditingService({ ...editingService, name: e.target.value })}
                   className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none"
                 />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-[#e2e8f0]/80 uppercase">Categoría</label>
-                <select
-                  value={editingService.category_id || ''}
-                  onChange={(e) => setEditingService({ ...editingService, category_id: e.target.value })}
-                  className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none"
-                >
-                  <option value="" className="bg-[#16191f] text-[#e2e8f0]">Sin Categoría (Opcional)</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-[#16191f] text-[#e2e8f0]">{c.name}</option>
-                  ))}
-                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1871,6 +2164,72 @@ export default function AdminPanel({
                     className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-[#e2e8f0]/80 uppercase">Usuario de Acceso Enlazado</label>
+                <select
+                  value={editingProfessional.user_id || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const linkedUser = allProfiles.find(p => p.id === val);
+                    setEditingProfessional({
+                      ...editingProfessional,
+                      user_id: val || undefined,
+                      email: editingProfessional.email || (linkedUser ? linkedUser.email : '')
+                    });
+                  }}
+                  className="w-full text-xs bg-[#0f1115] border border-[#2d333b] text-[#e2e8f0] rounded-lg p-2.5 focus:ring-2 focus:ring-[#c5a059] focus:outline-none"
+                >
+                  <option value="" className="bg-[#16191f]">-- Ninguno (Solo Ficha de Profesional) --</option>
+                  
+                  {/* Profesionales del mismo negocio */}
+                  {allProfiles.filter(p => p.role === 'professional' && p.business_id === businessId && (!p.id || !professionals.some(prof => prof.user_id === p.id && prof.id !== editingProfessional.id))).length > 0 && (
+                    <optgroup label="Profesionales de este Negocio" className="bg-[#16191f] text-[#c5a059]">
+                      {allProfiles
+                        .filter(p => p.role === 'professional' && p.business_id === businessId && !professionals.some(prof => prof.user_id === p.id && prof.id !== editingProfessional.id))
+                        .map(p => (
+                          <option key={p.id} value={p.id} className="bg-[#16191f] text-[#e2e8f0]">
+                            {p.full_name} ({p.email})
+                          </option>
+                        ))
+                      }
+                    </optgroup>
+                  )}
+
+                  {/* Si es superadmin, también mostrar profesionales sin negocio asignado o de otros negocios si quiere reasignar */}
+                  {currentUser.role === 'superadmin' && allProfiles.filter(p => p.role === 'professional' && p.business_id !== businessId && (!p.id || !professionals.some(prof => prof.user_id === p.id && prof.id !== editingProfessional.id))).length > 0 && (
+                    <optgroup label="Profesionales de otros negocios / sin negocio (Solo Súperadmin)" className="bg-[#16191f] text-[#c5a059]">
+                      {allProfiles
+                        .filter(p => p.role === 'professional' && p.business_id !== businessId && !professionals.some(prof => prof.user_id === p.id && prof.id !== editingProfessional.id))
+                        .map(p => (
+                          <option key={p.id} value={p.id} className="bg-[#16191f] text-[#e2e8f0]">
+                            {p.full_name} ({p.email}) - {p.business_id ? 'Otro negocio' : 'Sin negocio'}
+                          </option>
+                        ))
+                      }
+                    </optgroup>
+                  )}
+
+                  {/* Si es superadmin, mostrar opción de promover otros usuarios a profesional */}
+                  {currentUser.role === 'superadmin' && allProfiles.filter(p => p.role !== 'professional' && !professionals.some(prof => prof.user_id === p.id && prof.id !== editingProfessional.id)).length > 0 && (
+                    <optgroup label="Promover Usuario a Profesional (Solo Súperadmin)" className="bg-[#16191f] text-[#c5a059]">
+                      {allProfiles
+                        .filter(p => p.role !== 'professional' && !professionals.some(prof => prof.user_id === p.id && prof.id !== editingProfessional.id))
+                        .map(p => (
+                          <option key={p.id} value={p.id} className="bg-[#16191f] text-[#e2e8f0]">
+                            {p.full_name} (Rol: {p.role === 'client' ? 'Cliente' : p.role}) - {p.email}
+                          </option>
+                        ))
+                      }
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-[10px] text-[#e2e8f0]/40 mt-1">
+                  {currentUser.role === 'superadmin' 
+                    ? 'Vincular a un usuario permite que ingrese al sistema para gestionar su agenda personal. Si seleccionas un usuario que no tiene rol profesional, el sistema lo ascenderá automáticamente.'
+                    : 'Vincula este profesional a una cuenta de acceso con rol profesional asignada a este mismo negocio.'}
+                </p>
               </div>
 
               <div className="space-y-3 bg-[#0f1115] p-4 rounded-xl border border-[#2d333b]">

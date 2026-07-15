@@ -68,6 +68,7 @@ export interface Professional {
   work_end_time: string;   // "HH:MM"
   work_days: number[];     // Array de días, ej. [1, 2, 3, 4, 5] (Lunes a Viernes)
   service_ids?: string[];  // IDs de servicios habilitados para este profesional
+  user_id?: string;        // ID de usuario enlazado en la tabla profiles
   created_at: string;
 }
 
