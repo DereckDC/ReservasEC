@@ -38,8 +38,8 @@ export default function BookingCalendar({
     const loadProfessionals = async () => {
       try {
         const data = await db.getProfessionals(business.id);
-        // Filtrar profesionales para mostrar solo aquellos vinculados a este servicio (si tienen alguno configurado)
-        const filtered = data.filter(p => !p.service_ids || p.service_ids.length === 0 || p.service_ids.includes(service.id));
+        // Filtrar profesionales para mostrar solo aquellos vinculados a este servicio
+        const filtered = data.filter(p => p.service_ids && p.service_ids.includes(service.id));
         setProfessionals(filtered);
         if (filtered.length > 0) {
           setSelectedProfessional(filtered[0]);

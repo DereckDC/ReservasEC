@@ -256,12 +256,12 @@ export default function AdminPanel({
     // Calcular métricas
     const totalAppointments = filteredApts.length;
     const completedAppointments = filteredApts.filter(a => 
-      a && (a.status === 'completed' || a.status === 'confirmed' || a.status === 'reserved' || a.status === 'attended')
+      a && (a.status === 'completed' || a.status === 'attended')
     ).length;
 
     let totalRevenue = 0;
     filteredApts.forEach(a => {
-      if (a && a.status !== 'cancelled') {
+      if (a && (a.status === 'completed' || a.status === 'attended')) {
         const s = services.find(srv => srv && srv.id === a.service_id);
         if (s) {
           totalRevenue += Number(s.price);
@@ -296,7 +296,7 @@ export default function AdminPanel({
             serviceCounts[s.name] = { count: 0, revenue: 0 };
           }
           serviceCounts[s.name].count += 1;
-          if (a.status !== 'cancelled') {
+          if (a.status === 'completed' || a.status === 'attended') {
             serviceCounts[s.name].revenue += Number(s.price);
           }
         }
@@ -644,35 +644,67 @@ export default function AdminPanel({
     }
   };
 
-  const handleAddCertificate = () => {
+  const handleAddCertificate = async () => {
     if (!newCert.title || !newCert.institution || !newCert.year) return;
+    if (!business) return;
     const currentCerts = bizForm.certificates || [];
     const updatedCerts = [...currentCerts, newCert];
     
     setBizForm({ ...bizForm, certificates: updatedCerts });
     setNewCert({ title: '', institution: '', year: '' });
     setCertSource('none');
+
+    try {
+      await db.updateBusiness(business.id, { ...bizForm, certificates: updatedCerts });
+      await loadBusinessData();
+    } catch (err) {
+      console.error('Error al guardar certificado:', err);
+    }
   };
 
-  const handleRemoveCertificate = (idx: number) => {
+  const handleRemoveCertificate = async (idx: number) => {
+    if (!business) return;
     const currentCerts = bizForm.certificates || [];
     const updatedCerts = currentCerts.filter((_, i) => i !== idx);
     setBizForm({ ...bizForm, certificates: updatedCerts });
+
+    try {
+      await db.updateBusiness(business.id, { ...bizForm, certificates: updatedCerts });
+      await loadBusinessData();
+    } catch (err) {
+      console.error('Error al remover certificado:', err);
+    }
   };
 
-  const handleAddGalleryUrl = () => {
+  const handleAddGalleryUrl = async () => {
     if (!newGalleryUrl) return;
+    if (!business) return;
     const currentGallery = bizForm.gallery_urls || [];
     const updatedGallery = [...currentGallery, newGalleryUrl];
 
     setBizForm({ ...bizForm, gallery_urls: updatedGallery });
     setNewGalleryUrl('');
+
+    try {
+      await db.updateBusiness(business.id, { ...bizForm, gallery_urls: updatedGallery });
+      await loadBusinessData();
+    } catch (err) {
+      console.error('Error al añadir foto a galería:', err);
+    }
   };
 
-  const handleRemoveGalleryUrl = (idx: number) => {
+  const handleRemoveGalleryUrl = async (idx: number) => {
+    if (!business) return;
     const currentGallery = bizForm.gallery_urls || [];
     const updatedGallery = currentGallery.filter((_, i) => i !== idx);
     setBizForm({ ...bizForm, gallery_urls: updatedGallery });
+
+    try {
+      await db.updateBusiness(business.id, { ...bizForm, gallery_urls: updatedGallery });
+      await loadBusinessData();
+    } catch (err) {
+      console.error('Error al remover foto de galería:', err);
+    }
   };
 
   const weekDays = [
@@ -1505,8 +1537,13 @@ export default function AdminPanel({
                           try {
                             const base64 = await handleFileToBase64(file);
                             const currentGallery = bizForm.gallery_urls || [];
-                            setBizForm({ ...bizForm, gallery_urls: [...currentGallery, base64] });
-                            alert('¡Imagen añadida a la galería localmente!');
+                            const updatedGallery = [...currentGallery, base64];
+                            setBizForm({ ...bizForm, gallery_urls: updatedGallery });
+                            if (business) {
+                              await db.updateBusiness(business.id, { ...bizForm, gallery_urls: updatedGallery });
+                              await loadBusinessData();
+                            }
+                            alert('¡Imagen añadida y guardada en la galería con éxito!');
                           } catch (err) {
                             console.error('Error al subir imagen de galería:', err);
                             alert('No se pudo cargar la imagen.');

@@ -5,7 +5,7 @@ import BusinessDetail from './components/BusinessDetail';
 import AdminPanel from './components/AdminPanel';
 import SuperAdminPanel from './components/SuperAdminPanel';
 import ClientAppointments from './components/ClientAppointments';
-import { db, isSupabaseConfigured } from './lib/db';
+import { db, isSupabaseConfigured, supabase } from './lib/db';
 import { Profile, Business } from './types';
 import { AlertCircle, ShieldAlert, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -145,8 +145,15 @@ export default function App() {
     const resetTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
       
-      timeoutId = setTimeout(() => {
+      timeoutId = setTimeout(async () => {
         // Cierre de sesión automático por inactividad
+        if (isSupabaseConfigured && supabase) {
+          try {
+            await supabase.auth.signOut();
+          } catch (err) {
+            console.error('Error signing out due to inactivity:', err);
+          }
+        }
         handleSetCurrentUser(null);
         localStorage.setItem('sincrocitas_session_expired', 'true');
         // Recargar la página

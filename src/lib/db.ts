@@ -328,47 +328,32 @@ export const db = {
   async deleteService(id: string): Promise<void> {
     if (isSupabaseConfigured && supabase && isValidUUID(id)) {
       try {
-        // Primero intentamos una eliminación directa. Si la base de datos tiene habilitado ON DELETE CASCADE,
-        // PostgreSQL eliminará en cascada todas las citas de forma interna con privilegios de sistema,
-        // evitando restricciones de RLS cliente sobre la tabla de citas.
-        const { error: directErr } = await supabase.from('services').delete().eq('id', id);
-        if (!directErr) {
-          return; // Éxito directo
-        }
-        
-        console.warn('Eliminación directa del servicio falló, intentando desvinculación manual de citas:', directErr);
-
-        // Si la eliminación directa falló, intentamos la limpieza manual:
+        // Desvincular de historiales clínicos y eliminar citas asociadas primero manualmente para evitar restricciones RLS/FK
         const { data: apts, error: fetchAptsErr } = await supabase.from('appointments').select('id').eq('service_id', id);
-        if (fetchAptsErr) throw fetchAptsErr;
-        
-        const aptIds = apts?.map(a => a.id) || [];
-        if (aptIds.length > 0) {
-          // Desvincular de historiales clínicos
+        if (!fetchAptsErr && apts && apts.length > 0) {
+          const aptIds = apts.map(a => a.id);
+          
+          // Actualizar historiales clínicos que referencien estas citas a NULL
           const { error: histErr } = await supabase.from('client_histories').update({ appointment_id: null }).in('appointment_id', aptIds);
           if (histErr) {
-            console.warn('No se pudieron actualizar los historiales clínicos de las citas:', histErr);
+            console.warn('No se pudieron desvincular los historiales clínicos al borrar servicio:', histErr);
           }
           
           // Eliminar las citas asociadas
           const { error: deleteAptsErr } = await supabase.from('appointments').delete().in('id', aptIds);
           if (deleteAptsErr) {
-            console.warn('No se pudieron eliminar las citas asociadas:', deleteAptsErr);
-            throw deleteAptsErr;
+            console.warn('No se pudieron eliminar las citas del servicio:', deleteAptsErr);
           }
         }
 
-        // Reintentar eliminar el servicio
-        const { error: retryErr } = await supabase.from('services').delete().eq('id', id);
-        if (retryErr) throw retryErr;
+        // Ahora eliminamos el servicio
+        const { error: deleteSrvErr } = await supabase.from('services').delete().eq('id', id);
+        if (deleteSrvErr) throw deleteSrvErr;
         return;
       } catch (err: any) {
         console.error('Error al eliminar servicio en Supabase:', err);
         const errMsg = err?.message || err;
-        throw new Error(
-          `No se pudo eliminar el servicio. Detalle: ${errMsg}. ` +
-          `Asegúrese de haber ejecutado el archivo supabase_schema.sql en el SQL Editor de Supabase para activar las políticas de eliminación.`
-        );
+        throw new Error(`No se pudo eliminar el servicio. Detalle: ${errMsg}`);
       }
     }
     let list: Service[] = JSON.parse(localStorage.getItem('db_services') || '[]');
@@ -467,47 +452,32 @@ export const db = {
   async deleteProfessional(id: string): Promise<void> {
     if (isSupabaseConfigured && supabase && isValidUUID(id)) {
       try {
-        // Primero intentamos una eliminación directa. Si la base de datos tiene habilitado ON DELETE CASCADE,
-        // PostgreSQL eliminará en cascada todas las citas de forma interna con privilegios de sistema,
-        // evitando restricciones de RLS cliente sobre la tabla de citas.
-        const { error: directErr } = await supabase.from('professionals').delete().eq('id', id);
-        if (!directErr) {
-          return; // Éxito directo
-        }
-        
-        console.warn('Eliminación directa del profesional falló, intentando desvinculación manual de citas:', directErr);
-
-        // Si la eliminación directa falló, intentamos la limpieza manual:
+        // Desvincular de historiales clínicos y eliminar citas asociadas primero manualmente para evitar restricciones RLS/FK
         const { data: apts, error: fetchAptsErr } = await supabase.from('appointments').select('id').eq('professional_id', id);
-        if (fetchAptsErr) throw fetchAptsErr;
-        
-        const aptIds = apts?.map(a => a.id) || [];
-        if (aptIds.length > 0) {
-          // Desvincular de historiales clínicos
+        if (!fetchAptsErr && apts && apts.length > 0) {
+          const aptIds = apts.map(a => a.id);
+          
+          // Actualizar historiales clínicos que referencien estas citas a NULL
           const { error: histErr } = await supabase.from('client_histories').update({ appointment_id: null }).in('appointment_id', aptIds);
           if (histErr) {
-            console.warn('No se pudieron actualizar los historiales clínicos de las citas:', histErr);
+            console.warn('No se pudieron desvincular los historiales clínicos al borrar profesional:', histErr);
           }
           
           // Eliminar las citas asociadas
           const { error: deleteAptsErr } = await supabase.from('appointments').delete().in('id', aptIds);
           if (deleteAptsErr) {
-            console.warn('No se pudieron eliminar las citas asociadas:', deleteAptsErr);
-            throw deleteAptsErr;
+            console.warn('No se pudieron eliminar las citas del profesional:', deleteAptsErr);
           }
         }
 
-        // Reintentar eliminar el profesional
-        const { error: retryErr } = await supabase.from('professionals').delete().eq('id', id);
-        if (retryErr) throw retryErr;
+        // Ahora eliminamos el profesional
+        const { error: deleteProfErr } = await supabase.from('professionals').delete().eq('id', id);
+        if (deleteProfErr) throw deleteProfErr;
         return;
       } catch (err: any) {
         console.error('Error al eliminar profesional en Supabase:', err);
         const errMsg = err?.message || err;
-        throw new Error(
-          `No se pudo eliminar el profesional. Detalle: ${errMsg}. ` +
-          `Asegúrese de haber ejecutado el archivo supabase_schema.sql en el SQL Editor de Supabase para activar las políticas de eliminación.`
-        );
+        throw new Error(`No se pudo eliminar el profesional. Detalle: ${errMsg}`);
       }
     }
     let list: Professional[] = JSON.parse(localStorage.getItem('db_professionals') || '[]');
@@ -904,14 +874,14 @@ export const db = {
 
       const totalAppointments = bizApts.length;
       const completedAppointments = bizApts.filter(a => 
-        a && (a.status === 'completed' || a.status === 'confirmed' || a.status === 'reserved' || a.status === 'attended')
+        a && (a.status === 'completed' || a.status === 'attended')
       ).length;
       const cancelledAppointments = bizApts.filter(a => a && a.status === 'cancelled').length;
 
-      // Calcular ingresos basados en el precio del servicio contratado
+      // Calcular ingresos basados en el precio del servicio contratado cuando se ha completado o atendido
       let totalRevenue = 0;
       bizApts.forEach(a => {
-        if (a && a.status !== 'cancelled') {
+        if (a && (a.status === 'completed' || a.status === 'attended')) {
           const s = services.find(srv => srv && srv.id === a.service_id);
           if (s) {
             totalRevenue += Number(s.price);
@@ -934,7 +904,7 @@ export const db = {
               serviceCounts[s.name] = { count: 0, revenue: 0 };
             }
             serviceCounts[s.name].count += 1;
-            if (a.status !== 'cancelled') {
+            if (a.status === 'completed' || a.status === 'attended') {
               serviceCounts[s.name].revenue += Number(s.price);
             }
           }
