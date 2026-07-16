@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   TrendingUp, Calendar as CalendarIcon, ClipboardList, Briefcase, Users, Info, Plus, Edit2, Trash2, 
   Check, X, Award, MapPin, Phone, Star, DollarSign, Activity, Settings, PieChart as PieIcon, Download,
-  Image as ImageIcon, FileText, Upload, Link
+  Image as ImageIcon, FileText, Upload, Link, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
@@ -71,6 +71,13 @@ export default function AdminPanel({
   const [clientHistory, setClientHistory] = useState<ClientHistoryRecord[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [expandedHistoryRecords, setExpandedHistoryRecords] = useState<Record<string, boolean>>({});
+  const toggleHistoryRecord = (key: string) => {
+    setExpandedHistoryRecords(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
   const [historyForm, setHistoryForm] = useState({
     reason: '',
     clinical_picture: '',
@@ -566,6 +573,7 @@ export default function AdminPanel({
   const handleOpenAttendModal = async (apt: Appointment) => {
     setAttendingApt(apt);
     setLoadingHistory(true);
+    setExpandedHistoryRecords({});
     setHistoryForm({
       reason: '',
       clinical_picture: '',
@@ -590,8 +598,8 @@ export default function AdminPanel({
 
     const { reason, clinical_picture, diagnosis, treatment, prescription } = historyForm;
 
-    if (!reason || !clinical_picture || !diagnosis || !treatment || !prescription) {
-      alert('Por favor completa todos los campos de la ficha clínica.');
+    if (!reason || !clinical_picture || !diagnosis || !treatment) {
+      alert('Por favor completa todos los campos requeridos de la ficha clínica (la receta es opcional).');
       return;
     }
 
@@ -2460,7 +2468,7 @@ export default function AdminPanel({
       {/* MODAL DE HISTORIA CLÍNICA Y ATENCIÓN (NUEVO) */}
       {showHistoryModal && attendingApt && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#16191f] rounded-2xl shadow-2xl border border-[#2d333b] max-w-4xl w-full overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+          <div className="bg-[#16191f] rounded-2xl shadow-2xl border border-[#2d333b] max-w-7xl w-full overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
             {/* Header */}
             <div className="bg-[#0f1115] border-b border-[#2d333b] p-5 flex justify-between items-start">
               <div>
@@ -2498,25 +2506,74 @@ export default function AdminPanel({
                     <span className="text-xs font-semibold text-center">Este paciente no registra consultas previas en el establecimiento.</span>
                   </div>
                 ) : (
-                  <div className="space-y-4 overflow-y-auto pr-1 max-h-[50vh]">
-                    {clientHistory.map((item, idx) => (
-                      <div key={item.id || idx} className="bg-[#1c2128] border border-[#2d333b] rounded-xl p-4 space-y-3 shadow-lg hover:border-[#c5a059]/20 transition-all">
-                        <div className="flex justify-between items-center border-b border-[#2d333b]/60 pb-1.5">
-                          <span className="text-xs font-bold text-[#c5a059] font-mono">{item.consultation_date}</span>
-                          <span className="text-[10px] text-[#e2e8f0]/40 font-mono">Atendido por {item.created_by_name || 'Profesional'}</span>
+                  <div className="space-y-3 overflow-y-auto pr-1 max-h-[62vh]">
+                    {clientHistory.map((item, idx) => {
+                      const uniqueKey = item.id || idx.toString();
+                      const isExpanded = !!expandedHistoryRecords[uniqueKey];
+                      return (
+                        <div 
+                          key={uniqueKey} 
+                          className="bg-[#1c2128] border border-[#2d333b] rounded-xl overflow-hidden shadow-lg hover:border-[#c5a059]/20 transition-all"
+                        >
+                          {/* Encabezado del registro clickeable */}
+                          <button
+                            type="button"
+                            onClick={() => toggleHistoryRecord(uniqueKey)}
+                            className="w-full text-left p-3.5 flex justify-between items-center hover:bg-[#222830] transition-colors focus:outline-none focus:ring-1 focus:ring-[#c5a059]/30"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="p-1.5 rounded-lg bg-[#c5a059]/10 text-[#c5a059]">
+                                <ClipboardList className="w-4 h-4" />
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold text-[#c5a059] font-mono">{item.consultation_date}</span>
+                                <span className="text-[10px] text-[#e2e8f0]/40 font-mono">Atendido por {item.created_by_name || 'Profesional'}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] text-[#e2e8f0]/30 font-mono hidden sm:inline">
+                                {isExpanded ? 'Contraer' : 'Ver consulta'}
+                              </span>
+                              {isExpanded ? (
+                                <ChevronDown className="w-4 h-4 text-[#c5a059]" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4 text-[#e2e8f0]/30" />
+                              )}
+                            </div>
+                          </button>
+
+                          {/* Contenido expandible */}
+                          {isExpanded && (
+                            <div className="p-4 border-t border-[#2d333b]/60 space-y-3.5 bg-[#13161c]/50 animate-in fade-in slide-in-from-top-1 duration-150">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed text-[#e2e8f0]/80">
+                                <div className="space-y-1">
+                                  <strong className="text-[#c5a059] block text-[10px] uppercase font-mono tracking-wider">Motivo de consulta:</strong> 
+                                  <p className="text-[#e2e8f0]/60 whitespace-pre-wrap pl-1">{item.reason || 'Sin registrar'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <strong className="text-[#c5a059] block text-[10px] uppercase font-mono tracking-wider">Cuadro clínico:</strong> 
+                                  <p className="text-[#e2e8f0]/60 whitespace-pre-wrap pl-1">{item.clinical_picture || 'Sin registrar'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <strong className="text-[#c5a059] block text-[10px] uppercase font-mono tracking-wider">Diagnóstico:</strong> 
+                                  <p className="text-[#e2e8f0]/60 whitespace-pre-wrap pl-1">{item.diagnosis || 'Sin registrar'}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <strong className="text-[#c5a059] block text-[10px] uppercase font-mono tracking-wider">Tratamiento:</strong> 
+                                  <p className="text-[#e2e8f0]/60 whitespace-pre-wrap pl-1">{item.treatment || 'Sin registrar'}</p>
+                                </div>
+                              </div>
+                              {item.prescription && (
+                                <div className="bg-[#0f1115]/80 p-2.5 rounded-lg border border-[#2d333b]/40 mt-1">
+                                  <strong className="text-[#c5a059] block text-[10px] uppercase font-mono tracking-wider mb-1">Receta / Prescripción:</strong>
+                                  <p className="text-[#e2e8f0]/70 font-mono text-[11px] whitespace-pre-wrap">{item.prescription}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div className="space-y-2 text-xs leading-relaxed text-[#e2e8f0]/80">
-                          <div><strong className="text-[#c5a059]">Motivo de consulta:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{item.reason}</p></div>
-                          <div><strong className="text-[#c5a059]">Cuadro clínico:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{item.clinical_picture}</p></div>
-                          <div><strong className="text-[#c5a059]">Diagnóstico:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{item.diagnosis}</p></div>
-                          <div><strong className="text-[#c5a059]">Tratamiento:</strong> <p className="mt-0.5 text-[#e2e8f0]/60 whitespace-pre-wrap">{item.treatment}</p></div>
-                          <div className="bg-[#0f1115]/80 p-2.5 rounded-lg border border-[#2d333b]/40 mt-1">
-                            <strong className="text-[#c5a059] block text-[10px] uppercase font-mono tracking-wider mb-1">Receta / Prescripción:</strong>
-                            <p className="text-[#e2e8f0]/70 font-mono text-[11px] whitespace-pre-wrap">{item.prescription}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2631,13 +2688,15 @@ export default function AdminPanel({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="block text-[10px] font-bold text-emerald-400 uppercase font-mono tracking-wider">Receta / Prescripción de Medicamentos</label>
+                        <div className="flex justify-between items-center">
+                          <label className="block text-[10px] font-bold text-emerald-400 uppercase font-mono tracking-wider">Receta / Prescripción de Medicamentos</label>
+                          <span className="text-[9px] text-[#e2e8f0]/30 font-mono italic">Opcional</span>
+                        </div>
                         <textarea
-                          required
                           rows={3}
                           value={historyForm.prescription}
                           onChange={(e) => setHistoryForm({ ...historyForm, prescription: e.target.value })}
-                          placeholder="Fármaco - Dosis - Frecuencia - Duración&#10;Ej. Paracetamol 500mg, 1 tableta cada 8 horas por 3 días."
+                          placeholder="Fármaco - Dosis - Frecuencia - Duración&#10;Ej. Paracetamol 500mg, 1 tableta cada 8 horas por 3 días. (Opcional)"
                           className="w-full text-xs bg-[#0f1115] border border-emerald-500/20 text-emerald-300 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none placeholder-emerald-500/20 font-mono"
                         />
                       </div>

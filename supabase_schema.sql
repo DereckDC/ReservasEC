@@ -258,6 +258,19 @@ CREATE POLICY "Clientes y admins pueden actualizar citas"
         WHERE id = auth.uid() AND (role = 'superadmin' OR role = 'professional' OR (role = 'admin' AND business_id = appointments.business_id))
     ));
 
+CREATE POLICY "Admins y Profesionales pueden eliminar citas" 
+    ON public.appointments FOR DELETE 
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles 
+            WHERE profiles.id = auth.uid() AND (
+                profiles.role = 'superadmin' OR 
+                (profiles.role = 'admin' AND profiles.business_id = appointments.business_id) OR
+                (profiles.role = 'professional' AND profiles.business_id = appointments.business_id)
+            )
+        )
+    );
+
 -- 3.7 POLÍTICAS PARA RESEÑAS (REVIEWS)
 CREATE POLICY "Permitir lectura pública de reseñas" 
     ON public.reviews FOR SELECT 
@@ -288,6 +301,19 @@ CREATE POLICY "Profesionales y admins pueden actualizar historiales"
         SELECT 1 FROM public.profiles 
         WHERE id = auth.uid() AND (role = 'superadmin' OR role = 'professional' OR (role = 'admin' AND business_id = client_histories.business_id))
     ));
+
+CREATE POLICY "Admins y Profesionales pueden eliminar historiales" 
+    ON public.client_histories FOR DELETE 
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles 
+            WHERE profiles.id = auth.uid() AND (
+                profiles.role = 'superadmin' OR 
+                (profiles.role = 'admin' AND profiles.business_id = client_histories.business_id) OR
+                (profiles.role = 'professional' AND profiles.business_id = client_histories.business_id)
+            )
+        )
+    );
 
 -- =====================================================================
 -- 4. AUTOMATIZACIÓN: SYNC DE PERFILES MEDIANTE TRIGGER (SUPABASE AUTH)
