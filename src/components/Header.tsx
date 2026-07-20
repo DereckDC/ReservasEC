@@ -111,14 +111,30 @@ export default function Header({
               .maybeSingle();
 
             if (profile) {
-              setCurrentUser(profile);
+              const email = authData.user.email || emailInput;
+              const isGlobalAdmin = email === 'roomia.admincontact@gmail.com' || email.includes('superadmin');
+              
+              if (isGlobalAdmin && profile.role !== 'superadmin') {
+                // Sincronizar y actualizar el rol en la base de datos a superadmin
+                try {
+                  const updatedProfile = await db.updateProfileRole(profile.id, 'superadmin');
+                  setCurrentUser(updatedProfile);
+                } catch (updateErr) {
+                  console.error('No se pudo auto-promover el perfil a superadmin:', updateErr);
+                  setCurrentUser({ ...profile, role: 'superadmin' });
+                }
+              } else {
+                setCurrentUser(profile);
+              }
             } else {
-              // Si no existe perfil en public.profiles, crearlo con el rol por defecto de cliente
+              // Si no existe perfil en public.profiles, crearlo con el rol correcto
+              const email = authData.user.email || emailInput;
+              const role = (email === 'roomia.admincontact@gmail.com' || email.includes('superadmin')) ? 'superadmin' : 'client';
               const newProfile: Profile = {
                 id: authData.user.id,
-                email: authData.user.email || emailInput,
-                full_name: emailInput.split('@')[0],
-                role: 'client',
+                email,
+                full_name: email.split('@')[0],
+                role,
                 business_id: undefined,
                 created_at: new Date().toISOString()
               };
@@ -143,12 +159,13 @@ export default function Header({
           }
 
           if (authData.user) {
-            // Perfil por defecto de cliente sin asociar a negocio
+            const email = emailInput;
+            const role = (email === 'roomia.admincontact@gmail.com' || email.includes('superadmin')) ? 'superadmin' : 'client';
             const profileData: Profile = {
               id: authData.user.id,
-              email: emailInput,
-              full_name: nameInput || emailInput.split('@')[0],
-              role: 'client',
+              email,
+              full_name: nameInput || email.split('@')[0],
+              role,
               business_id: undefined,
               created_at: new Date().toISOString()
             };

@@ -17,6 +17,7 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [superadminSelectedBusinessId, setSuperadminSelectedBusinessId] = useState<string>('biz-1');
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [sessionExpiredModal, setSessionExpiredModal] = useState<boolean>(false);
 
   // Estados de Navegación del Sidebar y Tablas Internas
   const [showSidebar, setShowSidebar] = useState<boolean>(false);
@@ -132,7 +133,7 @@ export default function App() {
     const expired = localStorage.getItem('sincrocitas_session_expired');
     if (expired === 'true') {
       localStorage.removeItem('sincrocitas_session_expired');
-      alert('Tu sesión ha expirado por inactividad para proteger tu información. Por favor, inicia sesión de nuevo.');
+      setSessionExpiredModal(true);
     }
   }, []);
 
@@ -161,8 +162,8 @@ export default function App() {
       }, 15 * 60 * 1000); // 15 minutos de inactividad (estándar de producción)
     };
 
-    // Eventos para detectar cualquier interacción del usuario
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+    // Eventos para detectar cualquier interacción del usuario (incluyendo keydown y wheel)
+    const events = ['mousedown', 'mousemove', 'keypress', 'keydown', 'scroll', 'wheel', 'touchstart', 'click'];
     
     // Iniciar temporizador
     resetTimer();
@@ -393,6 +394,43 @@ export default function App() {
                 className="w-full bg-[#c5a059] hover:bg-[#b08d4a] active:bg-[#9c7d41] text-[#0f1115] font-bold text-xs py-3 rounded-xl transition-all cursor-pointer shadow-lg hover:shadow-[#c5a059]/10"
               >
                 Aceptar
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Alerta de Sesión Expirada por Inactividad (Seguridad de Producción) */}
+      <AnimatePresence>
+        {sessionExpiredModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in" id="session-expired-modal">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="bg-[#0f1115] border border-[#2d333b] rounded-2xl p-6 max-w-md w-full shadow-2xl text-center space-y-5"
+            >
+              <div className="w-14 h-14 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto border border-amber-500/30">
+                <ShieldAlert className="w-7 h-7 text-amber-500 animate-pulse" />
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="font-display font-bold text-lg text-white">Sesión Cerrada por Inactividad</h3>
+                <p className="text-xs text-[#e2e8f0]/75 leading-relaxed">
+                  Por tu seguridad y para proteger la confidencialidad de tu información, tu sesión ha sido cerrada automáticamente después de <span className="font-bold text-amber-400">15 minutos</span> sin interacción.
+                </p>
+              </div>
+
+              <div className="text-[11px] text-[#e2e8f0]/50 bg-[#1c2128]/60 p-3 rounded-lg border border-[#2d333b]/50">
+                Hemos restablecido la sesión de forma segura y recargado la aplicación. Por favor, inicia sesión de nuevo si necesitas continuar gestionando tus citas.
+              </div>
+
+              <button
+                onClick={() => setSessionExpiredModal(false)}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-[#0f1115] font-bold text-xs py-3 rounded-xl transition-all cursor-pointer shadow-lg shadow-amber-500/10 active:scale-[0.98]"
+              >
+                Entendido
               </button>
             </motion.div>
           </div>

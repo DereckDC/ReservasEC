@@ -207,8 +207,12 @@ export const db = {
         const { data, error } = await supabase.from('businesses').update(business).eq('id', id).select().single();
         if (error) throw error;
         return data;
-      } catch (err) {
-        console.warn('Supabase updateBusiness fallido, usando local:', err);
+      } catch (err: any) {
+        console.error('Error al actualizar negocio en Supabase:', err);
+        throw new Error(
+          `No se pudo actualizar el negocio. Detalle: ${err.message || err}. ` +
+          `Verifique que su cuenta tenga asignado el negocio correspondiente o tenga el rol de Super Administrador en la base de datos.`
+        );
       }
     }
     const list: Business[] = JSON.parse(localStorage.getItem('db_businesses') || '[]');
@@ -224,11 +228,15 @@ export const db = {
   async deleteBusiness(id: string): Promise<void> {
     if (isSupabaseConfigured && supabase && isValidUUID(id)) {
       try {
-        const { error } = await supabase.from('businesses').delete().eq('id', id);
+        const { data, error } = await supabase.from('businesses').delete().eq('id', id).select();
         if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error('No se encontró el negocio o no tienes permisos de Super Administrador para eliminarlo.');
+        }
         return;
-      } catch (err) {
-        console.warn('Supabase deleteBusiness fallido, usando local:', err);
+      } catch (err: any) {
+        console.error('Error al eliminar negocio en Supabase:', err);
+        throw new Error(`No se pudo eliminar el negocio. Detalle: ${err.message || err}`);
       }
     }
     const list: Business[] = JSON.parse(localStorage.getItem('db_businesses') || '[]');
@@ -328,37 +336,40 @@ export const db = {
   async deleteService(id: string): Promise<void> {
     if (isSupabaseConfigured && supabase && isValidUUID(id)) {
       try {
-        // Desvincular de historiales clínicos y eliminar citas asociadas primero manualmente para evitar restricciones RLS/FK
-        const { data: apts, error: fetchAptsErr } = await supabase.from('appointments').select('id').eq('service_id', id);
-        if (!fetchAptsErr && apts && apts.length > 0) {
-          const aptIds = apts.map(a => a.id);
-          
-          // Actualizar historiales clínicos que referencien estas citas a NULL
-          const { error: histErr } = await supabase.from('client_histories').update({ appointment_id: null }).in('appointment_id', aptIds);
-          if (histErr) {
-            console.warn('No se pudieron desvincular los historiales clínicos al borrar servicio:', histErr);
-          }
-          
-          // Eliminar las citas asociadas
-          const { error: deleteAptsErr } = await supabase.from('appointments').delete().in('id', aptIds);
-          if (deleteAptsErr) {
-            console.warn('No se pudieron eliminar las citas del servicio:', deleteAptsErr);
-          }
-        }
-
-        // Ahora eliminamos el servicio
-        const { error: deleteSrvErr } = await supabase.from('services').delete().eq('id', id);
+        // En Supabase, el trigger SECURITY DEFINER 'trigger_before_delete_service' se encarga automáticamente
+        // de desvincular historiales clínicos, eliminar citas y limpiar la lista de servicios de profesionales
+        // con privilegios de sistema, superando cualquier restricción de RLS del cliente sobre las tablas secundarias.
+        const { data, error: deleteSrvErr } = await supabase.from('services').delete().eq('id', id).select();
         if (deleteSrvErr) throw deleteSrvErr;
+        
+        // Si no se devolvieron filas afectadas, la eliminación falló por políticas RLS o ID inexistente.
+        if (!data || data.length === 0) {
+          throw new Error('No se encontró el servicio o no tienes permisos de Administrador del negocio para eliminarlo.');
+        }
         return;
       } catch (err: any) {
         console.error('Error al eliminar servicio en Supabase:', err);
         const errMsg = err?.message || err;
-        throw new Error(`No se pudo eliminar el servicio. Detalle: ${errMsg}`);
+        throw new Error(
+          `No se pudo eliminar el servicio. Detalle: ${errMsg}. ` +
+          `Verifique que su cuenta tenga asignado el negocio correspondiente o ejecute el script supabase_schema.sql actualizado en el SQL Editor de Supabase para activar los triggers de eliminación.`
+        );
       }
     }
+    // LocalStorage fallback
     let list: Service[] = JSON.parse(localStorage.getItem('db_services') || '[]');
     list = list.filter(s => s.id !== id);
     localStorage.setItem('db_services', JSON.stringify(list));
+
+    // Limpiar de los profesionales en local
+    let profList: Professional[] = JSON.parse(localStorage.getItem('db_professionals') || '[]');
+    profList = profList.map(p => {
+      if (p.service_ids) {
+        return { ...p, service_ids: p.service_ids.filter(sId => sId !== id) };
+      }
+      return p;
+    });
+    localStorage.setItem('db_professionals', JSON.stringify(profList));
   },
 
   // --- PROFESIONALES ---
@@ -452,37 +463,43 @@ export const db = {
   async deleteProfessional(id: string): Promise<void> {
     if (isSupabaseConfigured && supabase && isValidUUID(id)) {
       try {
-        // Desvincular de historiales clínicos y eliminar citas asociadas primero manualmente para evitar restricciones RLS/FK
-        const { data: apts, error: fetchAptsErr } = await supabase.from('appointments').select('id').eq('professional_id', id);
-        if (!fetchAptsErr && apts && apts.length > 0) {
-          const aptIds = apts.map(a => a.id);
-          
-          // Actualizar historiales clínicos que referencien estas citas a NULL
-          const { error: histErr } = await supabase.from('client_histories').update({ appointment_id: null }).in('appointment_id', aptIds);
-          if (histErr) {
-            console.warn('No se pudieron desvincular los historiales clínicos al borrar profesional:', histErr);
-          }
-          
-          // Eliminar las citas asociadas
-          const { error: deleteAptsErr } = await supabase.from('appointments').delete().in('id', aptIds);
-          if (deleteAptsErr) {
-            console.warn('No se pudieron eliminar las citas del profesional:', deleteAptsErr);
-          }
-        }
-
-        // Ahora eliminamos el profesional
-        const { error: deleteProfErr } = await supabase.from('professionals').delete().eq('id', id);
+        // En Supabase, el trigger SECURITY DEFINER 'trigger_before_delete_professional' se encarga automáticamente
+        // de desvincular historiales clínicos, eliminar citas y restablecer el rol del usuario vinculado a 'client'
+        // con privilegios de sistema, superando cualquier restricción de RLS del cliente sobre las tablas secundarias.
+        const { data, error: deleteProfErr } = await supabase.from('professionals').delete().eq('id', id).select();
         if (deleteProfErr) throw deleteProfErr;
+        
+        // Si no se devolvieron filas afectadas, la eliminación falló por políticas RLS o ID inexistente.
+        if (!data || data.length === 0) {
+          throw new Error('No se encontró el profesional o no tienes permisos de Administrador del negocio para eliminarlo.');
+        }
         return;
       } catch (err: any) {
         console.error('Error al eliminar profesional en Supabase:', err);
         const errMsg = err?.message || err;
-        throw new Error(`No se pudo eliminar el profesional. Detalle: ${errMsg}`);
+        throw new Error(
+          `No se pudo eliminar el profesional. Detalle: ${errMsg}. ` +
+          `Verifique que su cuenta tenga asignado el negocio correspondiente o ejecute el script supabase_schema.sql actualizado en el SQL Editor de Supabase para activar los triggers de eliminación.`
+        );
       }
     }
+    // LocalStorage fallback
     let list: Professional[] = JSON.parse(localStorage.getItem('db_professionals') || '[]');
+    const profToDelete = list.find(p => p.id === id);
     list = list.filter(p => p.id !== id);
     localStorage.setItem('db_professionals', JSON.stringify(list));
+
+    // Restablecer el rol en perfiles de local si había un usuario vinculado
+    if (profToDelete && profToDelete.user_id) {
+      let profiles: Profile[] = JSON.parse(localStorage.getItem('db_profiles') || '[]');
+      profiles = profiles.map(p => {
+        if (p.id === profToDelete.user_id) {
+          return { ...p, role: 'client', business_id: undefined };
+        }
+        return p;
+      });
+      localStorage.setItem('db_profiles', JSON.stringify(profiles));
+    }
   },
 
   // --- PERFILES (USUARIOS) ---
@@ -526,8 +543,9 @@ export const db = {
           .single();
         if (error) throw error;
         return data;
-      } catch (err) {
-        console.warn('Supabase updateProfileRole fallido, usando local:', err);
+      } catch (err: any) {
+        console.error('Error al actualizar rol de perfil en Supabase:', err);
+        throw new Error(`No se pudo actualizar el rol del usuario. Detalle: ${err.message || err}`);
       }
     }
     const list: Profile[] = JSON.parse(localStorage.getItem('db_profiles') || '[]');
@@ -546,8 +564,9 @@ export const db = {
         const { data, error } = await supabase.from('profiles').upsert(profile, { onConflict: 'id' }).select().single();
         if (error) throw error;
         return data;
-      } catch (err) {
-        console.warn('Supabase createProfile fallido, usando local:', err);
+      } catch (err: any) {
+        console.error('Error al crear perfil en Supabase:', err);
+        throw new Error(`No se pudo registrar el perfil en Supabase. Detalle: ${err.message || err}`);
       }
     }
     const list = JSON.parse(localStorage.getItem('db_profiles') || '[]');

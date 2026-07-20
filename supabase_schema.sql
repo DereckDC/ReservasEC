@@ -7,6 +7,19 @@
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
 
+DROP TRIGGER IF EXISTS trigger_before_delete_service ON public.services;
+DROP FUNCTION IF EXISTS public.handle_before_delete_service() CASCADE;
+
+DROP TRIGGER IF EXISTS trigger_before_delete_professional ON public.professionals;
+DROP FUNCTION IF EXISTS public.handle_before_delete_professional() CASCADE;
+
+DROP TRIGGER IF EXISTS trigger_check_profile_update ON public.profiles;
+DROP FUNCTION IF EXISTS public.check_profile_update_privileges() CASCADE;
+
+DROP FUNCTION IF EXISTS public.is_superadmin(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.is_business_admin(UUID, UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.is_business_staff(UUID, UUID) CASCADE;
+
 DROP TABLE IF EXISTS public.client_histories CASCADE;
 DROP TABLE IF EXISTS public.reviews CASCADE;
 DROP TABLE IF EXISTS public.appointments CASCADE;
@@ -147,6 +160,45 @@ ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_histories ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================================
+-- 3.0 FUNCIONES AUXILIARES DE SEGURIDAD (SECURITY DEFINER)
+-- Evitan recursión infinita en políticas RLS y centralizan lógica
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.is_superadmin(user_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Retorna true si el usuario tiene rol de superadmin en public.profiles
+    -- o si su email es el del administrador principal (seguridad y respaldo de producción)
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = user_id AND (role = 'superadmin' OR email = 'roomia.admincontact@gmail.com' OR email LIKE '%superadmin%')
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.is_business_admin(user_id UUID, biz_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Retorna true si es superadmin o si es admin del negocio especificado
+    RETURN public.is_superadmin(user_id) OR EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = user_id AND role = 'admin' AND business_id = biz_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.is_business_staff(user_id UUID, biz_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Retorna true si es superadmin o personal (admin/profesional) del negocio especificado
+    RETURN public.is_superadmin(user_id) OR EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = user_id AND (role = 'admin' OR role = 'professional') AND business_id = biz_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =====================================================================
 -- 3. POLÍTICAS DE SEGURIDAD (ROW LEVEL SECURITY POLICIES)
 -- =====================================================================
 
@@ -157,30 +209,15 @@ CREATE POLICY "Permitir lectura pública de negocios"
 
 CREATE POLICY "Permitir inserción de negocios a Super Admins" 
     ON public.businesses FOR INSERT 
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM public.profiles 
-            WHERE profiles.id = auth.uid() AND profiles.role = 'superadmin'
-        )
-    );
+    WITH CHECK (public.is_superadmin(auth.uid()));
 
 CREATE POLICY "Permitir modificación de negocio a Administradores autorizados" 
     ON public.businesses FOR UPDATE 
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.profiles 
-            WHERE profiles.id = auth.uid() AND (profiles.role = 'superadmin' OR (profiles.role = 'admin' AND profiles.business_id = id))
-        )
-    );
+    USING (public.is_business_admin(auth.uid(), id));
 
 CREATE POLICY "Permitir eliminación de negocios a Super Admins" 
     ON public.businesses FOR DELETE 
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.profiles 
-            WHERE profiles.id = auth.uid() AND profiles.role = 'superadmin'
-        )
-    );
+    USING (public.is_superadmin(auth.uid()));
 
 -- 3.2 POLÍTICAS PARA CATEGORÍAS (CATEGORIES)
 CREATE POLICY "Permitir lectura pública de categorías" 
@@ -189,87 +226,75 @@ CREATE POLICY "Permitir lectura pública de categorías"
 
 CREATE POLICY "Permitir administración de categorías a Super Admins" 
     ON public.categories FOR ALL 
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.profiles 
-            WHERE profiles.id = auth.uid() AND profiles.role = 'superadmin'
-        )
-    );
+    USING (public.is_superadmin(auth.uid()));
 
 -- 3.3 POLÍTICAS PARA PERFILES (PROFILES)
 CREATE POLICY "Permitir lectura de perfiles autenticados" 
     ON public.profiles FOR SELECT 
     USING (auth.uid() IS NOT NULL);
 
-CREATE POLICY "Permitir inserción de propio perfil" 
+CREATE POLICY "Permitir inserción de propio perfil o por Super Admin" 
     ON public.profiles FOR INSERT 
-    WITH CHECK (auth.uid() = id);
+    WITH CHECK (auth.uid() = id OR public.is_superadmin(auth.uid()));
 
-CREATE POLICY "Permitir modificación de propio perfil" 
+CREATE POLICY "Permitir modificación de propio perfil o por Super Admin" 
     ON public.profiles FOR UPDATE 
-    USING (auth.uid() = id OR EXISTS (
-        SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'superadmin'
-    ));
+    USING (auth.uid() = id OR public.is_superadmin(auth.uid()));
+
+CREATE POLICY "Permitir eliminación de perfiles a Super Admins" 
+    ON public.profiles FOR DELETE 
+    USING (public.is_superadmin(auth.uid()));
 
 -- 3.4 POLÍTICAS PARA SERVICIOS (SERVICES)
 CREATE POLICY "Permitir lectura pública de servicios" 
     ON public.services FOR SELECT 
     USING (true);
 
-CREATE POLICY "Permitir gestión de servicios a Admins del negocio" 
-    ON public.services FOR ALL 
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.profiles 
-            WHERE profiles.id = auth.uid() AND (profiles.role = 'superadmin' OR (profiles.role = 'admin' AND profiles.business_id = services.business_id))
-        )
-    );
+CREATE POLICY "Permitir inserción de servicios a Admins del negocio o Super Admins" 
+    ON public.services FOR INSERT 
+    WITH CHECK (public.is_business_admin(auth.uid(), business_id));
+
+CREATE POLICY "Permitir modificación de servicios a Admins del negocio o Super Admins" 
+    ON public.services FOR UPDATE 
+    USING (public.is_business_admin(auth.uid(), business_id));
+
+CREATE POLICY "Permitir eliminación de servicios a Admins del negocio o Super Admins" 
+    ON public.services FOR DELETE 
+    USING (public.is_business_admin(auth.uid(), business_id));
 
 -- 3.5 POLÍTICAS PARA PROFESIONALES (PROFESSIONALS)
 CREATE POLICY "Permitir lectura pública de profesionales" 
     ON public.professionals FOR SELECT 
     USING (true);
 
-CREATE POLICY "Permitir gestión de profesionales a Admins del negocio" 
-    ON public.professionals FOR ALL 
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.profiles 
-            WHERE profiles.id = auth.uid() AND (profiles.role = 'superadmin' OR (profiles.role = 'admin' AND profiles.business_id = professionals.business_id))
-        )
-    );
+CREATE POLICY "Permitir inserción de profesionales a Admins del negocio o Super Admins" 
+    ON public.professionals FOR INSERT 
+    WITH CHECK (public.is_business_admin(auth.uid(), business_id));
+
+CREATE POLICY "Permitir modificación de profesionales a Admins del negocio o Super Admins" 
+    ON public.professionals FOR UPDATE 
+    USING (public.is_business_admin(auth.uid(), business_id));
+
+CREATE POLICY "Permitir eliminación de profesionales a Admins del negocio o Super Admins" 
+    ON public.professionals FOR DELETE 
+    USING (public.is_business_admin(auth.uid(), business_id));
 
 -- 3.6 POLÍTICAS PARA CITAS (APPOINTMENTS)
-CREATE POLICY "Clientes pueden ver sus propias citas" 
+CREATE POLICY "Clientes y personal pueden ver citas" 
     ON public.appointments FOR SELECT 
-    USING (auth.uid() = client_id OR EXISTS (
-        SELECT 1 FROM public.profiles 
-        WHERE id = auth.uid() AND (role = 'superadmin' OR role = 'professional' OR (role = 'admin' AND business_id = appointments.business_id))
-    ));
+    USING (auth.uid() = client_id OR public.is_business_staff(auth.uid(), business_id));
 
-CREATE POLICY "Clientes pueden insertar sus propias citas" 
+CREATE POLICY "Clientes y personal pueden insertar citas" 
     ON public.appointments FOR INSERT 
-    WITH CHECK (auth.uid() = client_id);
+    WITH CHECK (auth.uid() = client_id OR public.is_business_staff(auth.uid(), business_id));
 
-CREATE POLICY "Clientes y admins pueden actualizar citas" 
+CREATE POLICY "Clientes y personal pueden actualizar citas" 
     ON public.appointments FOR UPDATE 
-    USING (auth.uid() = client_id OR EXISTS (
-        SELECT 1 FROM public.profiles 
-        WHERE id = auth.uid() AND (role = 'superadmin' OR role = 'professional' OR (role = 'admin' AND business_id = appointments.business_id))
-    ));
+    USING (auth.uid() = client_id OR public.is_business_staff(auth.uid(), business_id));
 
-CREATE POLICY "Admins y Profesionales pueden eliminar citas" 
+CREATE POLICY "Personal autorizado puede eliminar citas" 
     ON public.appointments FOR DELETE 
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.profiles 
-            WHERE profiles.id = auth.uid() AND (
-                profiles.role = 'superadmin' OR 
-                (profiles.role = 'admin' AND profiles.business_id = appointments.business_id) OR
-                (profiles.role = 'professional' AND profiles.business_id = appointments.business_id)
-            )
-        )
-    );
+    USING (public.is_business_staff(auth.uid(), business_id));
 
 -- 3.7 POLÍTICAS PARA RESEÑAS (REVIEWS)
 CREATE POLICY "Permitir lectura pública de reseñas" 
@@ -280,40 +305,26 @@ CREATE POLICY "Permitir inserción de reseñas a clientes autenticados"
     ON public.reviews FOR INSERT 
     WITH CHECK (auth.uid() = client_id);
 
+CREATE POLICY "Permitir moderación de reseñas a Super Admins" 
+    ON public.reviews FOR DELETE 
+    USING (public.is_superadmin(auth.uid()));
+
 -- 3.8 POLÍTICAS PARA HISTORIALES CLÍNICOS (CLIENT_HISTORIES)
-CREATE POLICY "Clientes pueden ver sus propios historiales" 
+CREATE POLICY "Clientes y personal autorizado pueden ver historiales" 
     ON public.client_histories FOR SELECT 
-    USING (auth.uid() = client_id OR EXISTS (
-        SELECT 1 FROM public.profiles 
-        WHERE id = auth.uid() AND (role = 'superadmin' OR role = 'professional' OR (role = 'admin' AND business_id = client_histories.business_id))
-    ));
+    USING (auth.uid() = client_id OR public.is_business_staff(auth.uid(), business_id));
 
-CREATE POLICY "Profesionales y admins pueden agregar historiales" 
+CREATE POLICY "Personal autorizado puede agregar historiales" 
     ON public.client_histories FOR INSERT 
-    WITH CHECK (EXISTS (
-        SELECT 1 FROM public.profiles 
-        WHERE id = auth.uid() AND (role = 'superadmin' OR role = 'professional' OR (role = 'admin' AND business_id = client_histories.business_id))
-    ));
+    WITH CHECK (public.is_business_staff(auth.uid(), business_id));
 
-CREATE POLICY "Profesionales y admins pueden actualizar historiales" 
+CREATE POLICY "Personal autorizado puede actualizar historiales" 
     ON public.client_histories FOR UPDATE 
-    USING (EXISTS (
-        SELECT 1 FROM public.profiles 
-        WHERE id = auth.uid() AND (role = 'superadmin' OR role = 'professional' OR (role = 'admin' AND business_id = client_histories.business_id))
-    ));
+    USING (public.is_business_staff(auth.uid(), business_id));
 
-CREATE POLICY "Admins y Profesionales pueden eliminar historiales" 
+CREATE POLICY "Personal autorizado puede eliminar historiales" 
     ON public.client_histories FOR DELETE 
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.profiles 
-            WHERE profiles.id = auth.uid() AND (
-                profiles.role = 'superadmin' OR 
-                (profiles.role = 'admin' AND profiles.business_id = client_histories.business_id) OR
-                (profiles.role = 'professional' AND profiles.business_id = client_histories.business_id)
-            )
-        )
-    );
+    USING (public.is_business_staff(auth.uid(), business_id));
 
 -- =====================================================================
 -- 4. AUTOMATIZACIÓN: SYNC DE PERFILES MEDIANTE TRIGGER (SUPABASE AUTH)
@@ -321,23 +332,110 @@ CREATE POLICY "Admins y Profesionales pueden eliminar historiales"
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+    assigned_role VARCHAR(50);
 BEGIN
+    -- Asignar rol de superadmin al correo del administrador o si contiene superadmin, de lo contrario cliente
+    IF new.email = 'roomia.admincontact@gmail.com' OR new.email LIKE '%superadmin%' THEN
+        assigned_role := 'superadmin';
+    ELSE
+        assigned_role := 'client';
+    END IF;
+
     INSERT INTO public.profiles (id, email, full_name, role, created_at)
     VALUES (
         new.id,
         new.email,
         COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-        'client',
+        assigned_role,
         NOW()
     );
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Crear el trigger
+-- Crear el trigger de creación
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 4.2 TRIGGERS PARA ELIMINACIÓN SEGURA EN CASCADA (SERVICES & PROFESSIONALS)
+-- Trigger para cuando se elimina un Servicio: desvincular historiales clínicos, citas y eliminar de la lista de servicios de profesionales.
+CREATE OR REPLACE FUNCTION public.handle_before_delete_service()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- 1. Desvincular de historiales clínicos que referencien citas de este servicio
+    UPDATE public.client_histories
+    SET appointment_id = NULL
+    WHERE appointment_id IN (
+        SELECT id FROM public.appointments WHERE service_id = OLD.id
+    );
+
+    -- 2. Eliminar citas asociadas a este servicio
+    DELETE FROM public.appointments WHERE service_id = OLD.id;
+
+    -- 3. Eliminar el ID del servicio de la lista de servicios de todos los profesionales
+    UPDATE public.professionals
+    SET service_ids = array_remove(service_ids, OLD.id)
+    WHERE OLD.id = ANY(service_ids);
+
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER trigger_before_delete_service
+    BEFORE DELETE ON public.services
+    FOR EACH ROW EXECUTE FUNCTION public.handle_before_delete_service();
+
+
+-- Trigger para cuando se elimina un Profesional: desvincular historiales clínicos, citas y restablecer perfil del usuario.
+CREATE OR REPLACE FUNCTION public.handle_before_delete_professional()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- 1. Desvincular de historiales clínicos que referencien citas de este profesional
+    UPDATE public.client_histories
+    SET appointment_id = NULL
+    WHERE appointment_id IN (
+        SELECT id FROM public.appointments WHERE professional_id = OLD.id
+    );
+
+    -- 2. Eliminar citas asociadas a este profesional
+    DELETE FROM public.appointments WHERE professional_id = OLD.id;
+
+    -- 3. Si hay un usuario (perfil) vinculado, restablecer su rol a 'client' y su business_id a NULL
+    IF OLD.user_id IS NOT NULL THEN
+        UPDATE public.profiles
+        SET role = 'client', business_id = NULL
+        WHERE id = OLD.user_id;
+    END IF;
+
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER trigger_before_delete_professional
+    BEFORE DELETE ON public.professionals
+    FOR EACH ROW EXECUTE FUNCTION public.handle_before_delete_professional();
+
+-- =====================================================================
+-- 4.3 TRIGGER DE SEGURIDAD PARA ACTUALIZACIÓN DE ROLES (PREVIENE ELEVACIÓN DE PRIVILEGIOS)
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.check_profile_update_privileges()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Si el rol o el business_id cambian, y el usuario actual NO es superadmin, rechazar la operación
+    IF (OLD.role IS DISTINCT FROM NEW.role OR OLD.business_id IS DISTINCT FROM NEW.business_id) THEN
+        IF NOT public.is_superadmin(auth.uid()) THEN
+            RAISE EXCEPTION 'No tiene permisos para modificar el rol o la empresa asociada del perfil.';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER trigger_check_profile_update
+    BEFORE UPDATE ON public.profiles
+    FOR EACH ROW EXECUTE FUNCTION public.check_profile_update_privileges();
 
 -- =====================================================================
 -- 5. ÍNDICES DE RENDIMIENTO Y OPTIMIZACIÓN
