@@ -177,8 +177,10 @@ export default function SuperAdminPanel({
     try {
       await db.deleteCategory(id);
       await loadAllData();
-    } catch (err) {
+      alert('Categoría de servicios eliminada correctamente.');
+    } catch (err: any) {
       console.error('Error al eliminar categoría:', err);
+      alert('Error al eliminar categoría: ' + (err.message || err));
     }
   };
 

@@ -132,8 +132,9 @@ export const db = {
         const { error } = await supabase.from('categories').delete().eq('id', id);
         if (error) throw error;
         return;
-      } catch (err) {
-        console.warn('Supabase deleteCategory fallido, usando local:', err);
+      } catch (err: any) {
+        console.error('Error al eliminar categoría en Supabase:', err);
+        throw new Error(`No se pudo eliminar la categoría. Detalle: ${err.message || err}`);
       }
     }
     let list: Category[] = JSON.parse(localStorage.getItem('db_categories') || '[]');
