@@ -67,7 +67,7 @@ export default function Header({
     { id: 'user-super', email: 'super@citas.com', full_name: 'Super Administrador Global', role: 'superadmin', created_at: new Date().toISOString() },
     { id: 'user-admin-1', email: 'admin1@citas.com', full_name: 'Admin Peluquería', role: 'admin', business_id: 'biz-1', created_at: new Date().toISOString() },
     { id: 'user-admin-2', email: 'admin2@citas.com', full_name: 'Admin FisioVital', role: 'admin', business_id: 'biz-2', created_at: new Date().toISOString() },
-    { id: 'user-client-1', email: 'roomia.admincontact@gmail.com', full_name: 'Usuario Cliente Demo', role: 'client', created_at: new Date().toISOString() }
+    { id: 'user-client-1', email: 'cliente@demo.com', full_name: 'Usuario Cliente Demo', role: 'client', created_at: new Date().toISOString() }
   ];
 
   const handleSwitchRole = (user: Profile) => {
@@ -111,30 +111,15 @@ export default function Header({
               .maybeSingle();
 
             if (profile) {
-              const email = authData.user.email || emailInput;
-              const isGlobalAdmin = email === 'roomia.admincontact@gmail.com' || email.includes('superadmin');
-              
-              if (isGlobalAdmin && profile.role !== 'superadmin') {
-                // Sincronizar y actualizar el rol en la base de datos a superadmin
-                try {
-                  const updatedProfile = await db.updateProfileRole(profile.id, 'superadmin');
-                  setCurrentUser(updatedProfile);
-                } catch (updateErr) {
-                  console.error('No se pudo auto-promover el perfil a superadmin:', updateErr);
-                  setCurrentUser({ ...profile, role: 'superadmin' });
-                }
-              } else {
-                setCurrentUser(profile);
-              }
+              setCurrentUser(profile);
             } else {
-              // Si no existe perfil en public.profiles, crearlo con el rol correcto
+              // Si no existe perfil en public.profiles, crearlo con el rol por defecto de cliente
               const email = authData.user.email || emailInput;
-              const role = (email === 'roomia.admincontact@gmail.com' || email.includes('superadmin')) ? 'superadmin' : 'client';
               const newProfile: Profile = {
                 id: authData.user.id,
                 email,
                 full_name: email.split('@')[0],
-                role,
+                role: 'client',
                 business_id: undefined,
                 created_at: new Date().toISOString()
               };
@@ -160,27 +145,40 @@ export default function Header({
 
           if (authData.user) {
             const email = emailInput;
-            const role = (email === 'roomia.admincontact@gmail.com' || email.includes('superadmin')) ? 'superadmin' : 'client';
-            const profileData: Profile = {
-              id: authData.user.id,
-              email,
-              full_name: nameInput || email.split('@')[0],
-              role,
-              business_id: undefined,
-              created_at: new Date().toISOString()
-            };
+            
+            let finalProfile: Profile;
+            
+            // Consultar el perfil que el trigger de base de datos de Supabase debió haber creado
+            const { data: profile, error: profError } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', authData.user.id)
+              .maybeSingle();
 
-            // Intentamos crear el perfil en la base de datos de Supabase.
-            // Si el trigger ya lo creó, el "upsert" actualizará los campos.
-            const created = await db.createProfile(profileData);
-            setCurrentUser(created);
+            if (profile) {
+              finalProfile = profile;
+            } else {
+              // Si el trigger no lo creó de inmediato, registrarlo con rol client
+              const profileData: Profile = {
+                id: authData.user.id,
+                email,
+                full_name: nameInput || email.split('@')[0],
+                role: 'client',
+                business_id: undefined,
+                created_at: new Date().toISOString()
+              };
+              const created = await db.createProfile(profileData);
+              finalProfile = created;
+            }
+
+            setCurrentUser(finalProfile);
 
             // Intentar enviar correo de bienvenida
             try {
               fetch('/api/notify-welcome', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: emailInput, full_name: profileData.full_name, role: profileData.role })
+                body: JSON.stringify({ email: emailInput, full_name: finalProfile.full_name, role: finalProfile.role })
               }).catch(errWelcome => console.error('Error enviando correo de bienvenida:', errWelcome));
             } catch (errWelcome) {
               console.error('Error enviando correo de bienvenida:', errWelcome);

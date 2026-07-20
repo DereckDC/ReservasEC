@@ -196,7 +196,7 @@ app.post('/api/notify-appointment', async (req, res) => {
     } = finalApt;
 
     if (!clientEmail) {
-      clientEmail = finalApt.client_email || 'roomia.admincontact@gmail.com';
+      clientEmail = finalApt.client_email || 'correo@cliente.com';
     }
 
     const subject = statusUpdate 
@@ -241,8 +241,7 @@ app.post('/api/notify-appointment', async (req, res) => {
     // Construir lista de destinatarios únicos sin duplicados
     const recipientList = Array.from(new Set([
       clientEmail,
-      adminEmail,
-      'roomia.admincontact@gmail.com'
+      adminEmail
     ].filter(Boolean)));
 
     if (transporter && recipientList.length > 0) {

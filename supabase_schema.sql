@@ -168,10 +168,9 @@ CREATE OR REPLACE FUNCTION public.is_superadmin(user_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
     -- Retorna true si el usuario tiene rol de superadmin en public.profiles
-    -- o si su email es el del administrador principal (seguridad y respaldo de producción)
     RETURN EXISTS (
         SELECT 1 FROM public.profiles
-        WHERE id = user_id AND (role = 'superadmin' OR email = 'roomia.admincontact@gmail.com' OR email LIKE '%superadmin%')
+        WHERE id = user_id AND role = 'superadmin'
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -334,10 +333,15 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
     assigned_role VARCHAR(50);
+    has_users BOOLEAN;
 BEGIN
-    -- Asignar rol de superadmin al correo del administrador o si contiene superadmin, de lo contrario cliente
-    IF new.email = 'roomia.admincontact@gmail.com' OR new.email LIKE '%superadmin%' THEN
+    -- Comprobar si ya existen perfiles en la tabla para auto-promover al primer usuario
+    SELECT EXISTS (SELECT 1 FROM public.profiles LIMIT 1) INTO has_users;
+    
+    IF NOT has_users THEN
         assigned_role := 'superadmin';
+    ELSIF new.raw_user_meta_data->>'role' IS NOT NULL THEN
+        assigned_role := COALESCE(new.raw_user_meta_data->>'role', 'client');
     ELSE
         assigned_role := 'client';
     END IF;
