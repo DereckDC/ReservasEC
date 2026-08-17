@@ -43,14 +43,14 @@ CREATE TABLE public.businesses (
     slug VARCHAR(255) UNIQUE NOT NULL,
     description TEXT,
     category VARCHAR(100) NOT NULL,
-    logo_url VARCHAR(1000),
-    cover_url VARCHAR(1000),
+    logo_url TEXT,
+    cover_url TEXT,
     phone VARCHAR(50) NOT NULL,
-    address VARCHAR(255) NOT NULL,
+    address TEXT NOT NULL,
     gallery_urls TEXT[] DEFAULT '{}'::text[],
     certificates JSONB DEFAULT '[]'::jsonb,
     is_visible BOOLEAN DEFAULT TRUE NOT NULL,
-    google_maps_url VARCHAR(1000),
+    google_maps_url TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
@@ -82,7 +82,7 @@ CREATE TABLE public.services (
     description TEXT NOT NULL,
     duration_minutes INT NOT NULL DEFAULT 30 CHECK (duration_minutes > 0),
     price NUMERIC(10,2) NOT NULL DEFAULT 0.00 CHECK (price >= 0),
-    image_url VARCHAR(1000),
+    image_url TEXT,
     image_urls TEXT[] DEFAULT '{}'::text[] NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
@@ -94,7 +94,7 @@ CREATE TABLE public.professionals (
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     specialty VARCHAR(255) NOT NULL,
-    avatar_url VARCHAR(1000) NOT NULL,
+    avatar_url TEXT NOT NULL,
     work_start_time VARCHAR(5) DEFAULT '09:00' NOT NULL,
     work_end_time VARCHAR(5) DEFAULT '18:00' NOT NULL,
     work_days INT[] DEFAULT '{1,2,3,4,5}'::int[] NOT NULL,
@@ -453,3 +453,29 @@ CREATE INDEX IF NOT EXISTS idx_appointments_client_id ON public.appointments(cli
 CREATE INDEX IF NOT EXISTS idx_reviews_business_id ON public.reviews(business_id);
 CREATE INDEX IF NOT EXISTS idx_client_histories_client_id ON public.client_histories(client_id);
 CREATE INDEX IF NOT EXISTS idx_client_histories_business_id ON public.client_histories(business_id);
+
+-- =====================================================================
+-- 6. MIGRACIÓN AUTOMÁTICA DE TIPOS (PARA BASES DE DATOS PREEXISTENTES)
+-- Garantiza que campos con URLs, imágenes y mapas no tengan límite VARCHAR(1000)
+-- =====================================================================
+DO $$ 
+BEGIN
+    -- Negocios
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'businesses' AND column_name = 'logo_url') THEN
+        ALTER TABLE public.businesses ALTER COLUMN logo_url TYPE TEXT;
+        ALTER TABLE public.businesses ALTER COLUMN cover_url TYPE TEXT;
+        ALTER TABLE public.businesses ALTER COLUMN google_maps_url TYPE TEXT;
+        ALTER TABLE public.businesses ALTER COLUMN address TYPE TEXT;
+    END IF;
+
+    -- Servicios
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'services' AND column_name = 'image_url') THEN
+        ALTER TABLE public.services ALTER COLUMN image_url TYPE TEXT;
+    END IF;
+
+    -- Profesionales
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'professionals' AND column_name = 'avatar_url') THEN
+        ALTER TABLE public.professionals ALTER COLUMN avatar_url TYPE TEXT;
+    END IF;
+END $$;
+
