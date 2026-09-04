@@ -9,6 +9,7 @@ import {
   PieChart, Pie, Cell 
 } from 'recharts';
 import { db } from '../lib/db';
+import { fileToBase64Optimized } from '../lib/imageUtils';
 import { 
   Business, Service, Professional, Appointment, Category, BusinessAnalytics, Certificate, Profile, ClientHistoryRecord 
 } from '../types';
@@ -121,14 +122,9 @@ export default function AdminPanel({
   const [srvGalleryMode, setSrvGalleryMode] = useState<'upload' | 'link'>('upload');
   const [srvGalleryLinkInput, setSrvGalleryLinkInput] = useState('');
 
-  // Utilidad para convertir archivo de almacenamiento interno a Base64 Data URL
+  // Utilidad para convertir archivo de almacenamiento interno a Base64 Data URL optimizado
   const handleFileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
-      reader.readAsDataURL(file);
-    });
+    return fileToBase64Optimized(file);
   };
 
   // Carga e inicialización
@@ -639,8 +635,9 @@ export default function AdminPanel({
       await db.updateBusiness(business.id, bizForm);
       alert('Información del negocio guardada y actualizada con éxito.');
       await loadBusinessData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al actualizar info de negocio:', err);
+      alert('Error al guardar información del negocio: ' + (err.message || err));
     }
   };
 
@@ -657,8 +654,9 @@ export default function AdminPanel({
     try {
       await db.updateBusiness(business.id, { ...bizForm, certificates: updatedCerts });
       await loadBusinessData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al guardar certificado:', err);
+      alert('Error al guardar certificado: ' + (err.message || err));
     }
   };
 
@@ -671,8 +669,9 @@ export default function AdminPanel({
     try {
       await db.updateBusiness(business.id, { ...bizForm, certificates: updatedCerts });
       await loadBusinessData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al remover certificado:', err);
+      alert('Error al remover certificado: ' + (err.message || err));
     }
   };
 
@@ -688,8 +687,9 @@ export default function AdminPanel({
     try {
       await db.updateBusiness(business.id, { ...bizForm, gallery_urls: updatedGallery });
       await loadBusinessData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al añadir foto a galería:', err);
+      alert('Error al añadir foto a galería: ' + (err.message || err));
     }
   };
 
@@ -702,8 +702,9 @@ export default function AdminPanel({
     try {
       await db.updateBusiness(business.id, { ...bizForm, gallery_urls: updatedGallery });
       await loadBusinessData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al remover foto de galería:', err);
+      alert('Error al remover foto de galería: ' + (err.message || err));
     }
   };
 
@@ -2371,14 +2372,15 @@ export default function AdminPanel({
                         type="file" 
                         accept="image/*"
                         className="hidden" 
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setEditingProfessional({ ...editingProfessional, avatar_url: reader.result as string });
-                            };
-                            reader.readAsDataURL(file);
+                            try {
+                              const base64 = await handleFileToBase64(file);
+                              setEditingProfessional({ ...editingProfessional, avatar_url: base64 });
+                            } catch (err) {
+                              console.error('Error al procesar avatar:', err);
+                            }
                           }
                         }}
                       />

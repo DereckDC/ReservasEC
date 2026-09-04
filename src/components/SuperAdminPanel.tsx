@@ -9,6 +9,7 @@ import {
   PieChart, Pie, Cell 
 } from 'recharts';
 import { db } from '../lib/db';
+import { fileToBase64Optimized } from '../lib/imageUtils';
 import { Profile, Category, Business, UserRole, Appointment, Service } from '../types';
 
 interface SuperAdminPanelProps {
@@ -815,14 +816,7 @@ export default function SuperAdminPanel({
                           }
                           const filesToProcess = files.slice(0, spaceLeft);
                           
-                          const promises = filesToProcess.map(file => {
-                            return new Promise<string>((resolve, reject) => {
-                              const reader = new FileReader();
-                              reader.onload = () => resolve(reader.result as string);
-                              reader.onerror = (error) => reject(error);
-                              reader.readAsDataURL(file);
-                            });
-                          });
+                          const promises = filesToProcess.map(file => fileToBase64Optimized(file));
 
                           try {
                             const base64s = await Promise.all(promises);

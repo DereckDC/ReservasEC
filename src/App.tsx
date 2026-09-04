@@ -15,7 +15,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<string>('catalog');
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [superadminSelectedBusinessId, setSuperadminSelectedBusinessId] = useState<string>('biz-1');
+  const [superadminSelectedBusinessId, setSuperadminSelectedBusinessId] = useState<string>('');
   const [routeError, setRouteError] = useState<string | null>(null);
   const [sessionExpiredModal, setSessionExpiredModal] = useState<boolean>(false);
 
@@ -100,21 +100,12 @@ export default function App() {
         setSuperadminSelectedBusinessId(bizList[0].id);
       }
 
-      // Asignar un usuario por defecto si no hay ninguno activo para facilitar la navegación del evaluador
+      // Recuperar usuario autenticado previo si existe
       const savedUser = localStorage.getItem('sincrocitas_current_user');
-      const wasLoggedOut = localStorage.getItem('sincrocitas_logged_out') === 'true';
       let activeUser: Profile | null = null;
       if (savedUser) {
         activeUser = JSON.parse(savedUser);
         setCurrentUser(activeUser);
-      } else if (!wasLoggedOut) {
-        // Por defecto, cliente demo para iniciar de inmediato de forma interactiva (solo si no cerró sesión explícitamente)
-        const profiles = await db.getProfiles();
-        const demoClient = profiles.find(p => p.role === 'client');
-        if (demoClient) {
-          activeUser = demoClient;
-          setCurrentUser(demoClient);
-        }
       }
 
       // Sincronizar ruta inicial con la lista cargada
@@ -139,46 +130,94 @@ export default function App() {
 
   // Detector de inactividad para cierre de sesión automático (Orientado a producción real)
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      // Limpiar rastro de actividad si no hay usuario activo
+      localStorage.removeItem('sincrocitas_last_activity');
+      return;
+    }
 
+    const INACTIVITY_LIMIT = 15 * 60 * 1000; // 15 minutos (estándar de producción)
+    let intervalId: any;
     let timeoutId: any;
 
-    const resetTimer = () => {
+    // Inicializar o restablecer marca de tiempo en localStorage
+    if (!localStorage.getItem('sincrocitas_last_activity')) {
+      localStorage.setItem('sincrocitas_last_activity', Date.now().toString());
+    }
+
+    const performLogout = async () => {
       if (timeoutId) clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
       
-      timeoutId = setTimeout(async () => {
-        // Cierre de sesión automático por inactividad
-        if (isSupabaseConfigured && supabase) {
-          try {
-            await supabase.auth.signOut();
-          } catch (err) {
-            console.error('Error signing out due to inactivity:', err);
-          }
+      console.log('Sesión cerrada automáticamente por inactividad.');
+      
+      if (isSupabaseConfigured && supabase) {
+        try {
+          await supabase.auth.signOut();
+        } catch (err) {
+          console.error('Error signing out due to inactivity:', err);
         }
-        handleSetCurrentUser(null);
-        localStorage.setItem('sincrocitas_session_expired', 'true');
-        // Recargar la página
-        window.location.reload();
-      }, 15 * 60 * 1000); // 15 minutos de inactividad (estándar de producción)
+      }
+      handleSetCurrentUser(null);
+      localStorage.setItem('sincrocitas_session_expired', 'true');
+      window.location.reload();
     };
 
-    // Eventos para detectar cualquier interacción del usuario (incluyendo keydown y wheel)
-    const events = ['mousedown', 'mousemove', 'keypress', 'keydown', 'scroll', 'wheel', 'touchstart', 'click'];
-    
-    // Iniciar temporizador
-    resetTimer();
+    const checkInactivity = () => {
+      const lastActivityStr = localStorage.getItem('sincrocitas_last_activity');
+      if (lastActivityStr) {
+        const lastActivity = parseInt(lastActivityStr, 10);
+        const now = Date.now();
+        if (now - lastActivity >= INACTIVITY_LIMIT) {
+          performLogout();
+          return true; // Expirado
+        }
+      }
+      return false; // No expirado
+    };
 
-    // Registrar escuchas de eventos
+    const updateActivity = () => {
+      // Primero verificar si ya expiró
+      if (checkInactivity()) return;
+
+      // Si no ha expirado, actualizar la marca de tiempo de actividad
+      localStorage.setItem('sincrocitas_last_activity', Date.now().toString());
+
+      // Reiniciar temporizador local por si acaso
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        checkInactivity();
+      }, INACTIVITY_LIMIT);
+    };
+
+    // Registrar eventos de interacción para actualizar actividad y revisar expiración
+    const events = ['mousedown', 'mousemove', 'keypress', 'keydown', 'scroll', 'wheel', 'touchstart', 'click'];
     events.forEach(event => {
-      window.addEventListener(event, resetTimer, { passive: true });
+      window.addEventListener(event, updateActivity, { passive: true });
     });
+
+    // Comprobar inactividad al enfocar la pestaña (en caso de suspensión del navegador)
+    window.addEventListener('focus', checkInactivity);
+
+    // Comprobación periódica pasiva (cada 5 segundos) por seguridad
+    intervalId = setInterval(checkInactivity, 5000);
+
+    // Primera comprobación inmediata al iniciar/cambiar de usuario
+    checkInactivity();
+    
+    // Iniciar el timeout local inicial
+    timeoutId = setTimeout(() => {
+      checkInactivity();
+    }, INACTIVITY_LIMIT);
 
     // Limpieza al desmontar o cuando cambie el usuario
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
       events.forEach(event => {
-        window.removeEventListener(event, resetTimer);
+        window.removeEventListener(event, updateActivity);
       });
+      window.removeEventListener('focus', checkInactivity);
     };
   }, [currentUser]);
 

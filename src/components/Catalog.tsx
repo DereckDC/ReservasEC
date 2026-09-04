@@ -129,8 +129,16 @@ export default function Catalog({ onSelectBusiness }: CatalogProps) {
       {filteredBusinesses.length === 0 ? (
         <div className="bg-[#1c2128] border border-[#2d333b] p-16 text-center rounded-2xl shadow-sm" id="empty-catalog">
           <Building className="w-12 h-12 text-[#c5a059]/40 mx-auto mb-3" />
-          <span className="text-sm font-semibold text-[#e2e8f0] block">No se encontraron negocios</span>
-          <p className="text-xs text-[#e2e8f0]/50 mt-1">Prueba cambiando tu búsqueda o seleccionando otra categoría global.</p>
+          <span className="text-sm font-semibold text-[#e2e8f0] block">
+            {businesses.length === 0 
+              ? 'No existen negocios registrados en la plataforma' 
+              : 'No se encontraron negocios'}
+          </span>
+          {businesses.length > 0 && (
+            <p className="text-xs text-[#e2e8f0]/50 mt-1 max-w-md mx-auto">
+              Prueba cambiando tu búsqueda o seleccionando otra categoría global.
+            </p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="businesses-catalog-grid">

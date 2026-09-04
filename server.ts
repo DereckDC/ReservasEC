@@ -14,15 +14,23 @@ const PORT = 3000;
 app.use(express.json());
 
 // Inicialización de cliente Supabase de forma segura
-let rawSupabaseUrl = process.env.VITE_SUPABASE_URL || 'https://uypldnumxstagpjgifou.supabase.co';
+let rawSupabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
 if (rawSupabaseUrl.endsWith('/rest/v1/')) {
   rawSupabaseUrl = rawSupabaseUrl.substring(0, rawSupabaseUrl.length - 9);
 } else if (rawSupabaseUrl.endsWith('/rest/v1')) {
   rawSupabaseUrl = rawSupabaseUrl.substring(0, rawSupabaseUrl.length - 8);
 }
 const supabaseUrl = rawSupabaseUrl;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV5cGxkbnVteHN0YWdwamdpZm91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5MDYyNDMsImV4cCI6MjA5OTQ4MjI0M30.QmF4sdTSO2neH7EUJZ1VG5H4dHLJbttfVDHj5WfMQ0k';
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseAnonKey = (process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+
+const isSupabaseConfigured = Boolean(
+  supabaseUrl && 
+  supabaseAnonKey && 
+  !supabaseUrl.includes('uypldnumxstagpjgifou') &&
+  (supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://'))
+);
+
+const supabase = isSupabaseConfigured ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 // Helper para obtener el transportador SMTP de Google/Gmail
 function getSMTPTransporter() {
@@ -123,8 +131,8 @@ app.post('/api/notify-appointment', async (req, res) => {
     let clientEmail = '';
     let adminEmail = '';
     
-    // Consultar datos reales de Supabase si tenemos ID de la cita
-    if (!finalApt && appointmentId) {
+    // Consultar datos reales de Supabase si tenemos ID de la cita y Supabase está configurado
+    if (!finalApt && appointmentId && supabase) {
       try {
         const { data: aptData, error: aptError } = await supabase
           .from('appointments')
