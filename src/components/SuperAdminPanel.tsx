@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, ShieldAlert, FolderTree, Building, Plus, Trash2, Edit, Save, 
-  Check, X, Sparkles, MapPin, Phone, MessageSquare, Image,
+  Check, X, Sparkles, MapPin, Phone, MessageSquare, Image, Star,
   TrendingUp, DollarSign, Calendar as CalendarIcon, Activity, PieChart as PieIcon, RefreshCw, BarChart3
 } from 'lucide-react';
 import { 
@@ -820,9 +820,12 @@ export default function SuperAdminPanel({
 
                           try {
                             const base64s = await Promise.all(promises);
+                            const combined = [...currentGallery, ...base64s];
+                            const defaultCover = newBiz.cover_url || combined[0] || '';
                             setNewBiz({
                               ...newBiz,
-                              gallery_urls: [...currentGallery, ...base64s]
+                              gallery_urls: combined,
+                              cover_url: defaultCover
                             });
                           } catch (err) {
                             console.error('Error al subir imágenes:', err);
@@ -854,9 +857,12 @@ export default function SuperAdminPanel({
                               alert("Ya has alcanzado el límite de 10 fotos.");
                               return;
                             }
+                            const combined = [...currentGallery, bizGalleryLinkInput];
+                            const defaultCover = newBiz.cover_url || combined[0] || '';
                             setNewBiz({
                               ...newBiz,
-                              gallery_urls: [...currentGallery, bizGalleryLinkInput]
+                              gallery_urls: combined,
+                              cover_url: defaultCover
                             });
                             setBizGalleryLinkInput('');
                           }}
@@ -874,22 +880,73 @@ export default function SuperAdminPanel({
                   </div>
                 )}
 
-                <div className="grid grid-cols-5 gap-1.5 pt-1.5">
-                  {(newBiz.gallery_urls || []).map((url, idx) => (
-                    <div key={idx} className="relative aspect-square rounded overflow-hidden border border-[#2d333b] group">
-                      <img src={url} alt={`Galería ${idx + 1}`} className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = (newBiz.gallery_urls || []).filter((_, i) => i !== idx);
-                          setNewBiz({ ...newBiz, gallery_urls: updated });
-                        }}
-                        className="absolute inset-0 bg-red-600/95 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[9px] font-bold transition-all duration-150 cursor-pointer"
-                      >
-                        Quitar
-                      </button>
+                {/* Vista previa de Portada Seleccionada en SuperAdmin */}
+                {newBiz.cover_url && (
+                  <div className="p-2.5 bg-[#0f1115] border border-[#c5a059]/40 rounded-lg flex items-center gap-3">
+                    <img 
+                      src={newBiz.cover_url} 
+                      alt="Portada seleccionada" 
+                      className="w-16 h-10 object-cover rounded border border-[#2d333b] shrink-0" 
+                    />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] font-bold text-[#c5a059] flex items-center gap-1 uppercase">
+                        <Star className="w-3 h-3 fill-current" />
+                        Foto de Portada Seleccionada
+                      </span>
+                      <p className="text-[9px] text-[#e2e8f0]/50 truncate">Seleccionada de la galería del negocio</p>
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-5 gap-1.5 pt-1.5">
+                  {(newBiz.gallery_urls || []).map((url, idx) => {
+                    const isCover = newBiz.cover_url === url;
+                    return (
+                      <div 
+                        key={idx} 
+                        className={`relative aspect-square rounded overflow-hidden border transition-all group ${
+                          isCover 
+                            ? 'border-[#c5a059] ring-1 ring-[#c5a059]' 
+                            : 'border-[#2d333b]'
+                        }`}
+                      >
+                        <img src={url} alt={`Galería ${idx + 1}`} className="w-full h-full object-cover" />
+                        
+                        {isCover ? (
+                          <div className="absolute top-1 left-1 z-10 bg-[#c5a059] text-[#0f1115] text-[8px] font-extrabold px-1 rounded flex items-center gap-0.5 shadow">
+                            <Star className="w-2 h-2 fill-current" />
+                            Portada
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setNewBiz({ ...newBiz, cover_url: url })}
+                            className="absolute top-1 left-1 z-10 bg-[#0f1115]/90 hover:bg-[#c5a059] text-[#e2e8f0] hover:text-[#0f1115] text-[8px] font-bold px-1 rounded transition-colors cursor-pointer border border-[#2d333b]"
+                            title="Fijar como portada"
+                          >
+                            Portada
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const removed = (newBiz.gallery_urls || [])[idx];
+                            const updated = (newBiz.gallery_urls || []).filter((_, i) => i !== idx);
+                            let updatedCover = newBiz.cover_url;
+                            if (updatedCover === removed) {
+                              updatedCover = updated[0] || '';
+                            }
+                            setNewBiz({ ...newBiz, gallery_urls: updated, cover_url: updatedCover });
+                          }}
+                          className="absolute bottom-1 right-1 bg-red-600/90 hover:bg-red-600 text-white text-[8px] font-bold px-1 rounded transition-all cursor-pointer shadow"
+                          title="Eliminar de galería"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

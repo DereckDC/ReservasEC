@@ -151,18 +151,21 @@ export default function Catalog({ onSelectBusiness }: CatalogProps) {
               >
                 {/* Portada Mini */}
                 <div className="h-40 relative overflow-hidden bg-[#0f1115] flex items-center justify-center">
-                  {biz.cover_url ? (
-                    <img 
-                      src={biz.cover_url} 
-                      alt={biz.name}
-                      className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500 opacity-80"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-[#16191f] to-[#0f1115] flex flex-col items-center justify-center text-[#e2e8f0]/30 p-4">
-                      <ImageIcon className="w-7 h-7 text-[#c5a059]/40 mb-1" />
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-[#c5a059]/60">Sin foto de portada</span>
-                    </div>
-                  )}
+                  {(() => {
+                    const coverPhoto = biz.cover_url || (biz.gallery_urls && biz.gallery_urls.length > 0 ? biz.gallery_urls[0] : null);
+                    return coverPhoto ? (
+                      <img 
+                        src={coverPhoto} 
+                        alt={biz.name}
+                        className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500 opacity-80"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-[#16191f] to-[#0f1115] flex flex-col items-center justify-center text-[#e2e8f0]/30 p-4">
+                        <ImageIcon className="w-7 h-7 text-[#c5a059]/40 mb-1" />
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-[#c5a059]/60">Sin foto de portada</span>
+                      </div>
+                    );
+                  })()}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#1c2128] via-transparent to-transparent" />
                   
                   {/* Logo Superpuesto */}

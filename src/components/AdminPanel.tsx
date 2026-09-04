@@ -675,17 +675,32 @@ export default function AdminPanel({
     }
   };
 
+  const handleSetCoverPhoto = async (url: string) => {
+    if (!business) return;
+    const updatedForm = { ...bizForm, cover_url: url };
+    setBizForm(updatedForm);
+    try {
+      await db.updateBusiness(business.id, updatedForm);
+      await loadBusinessData();
+    } catch (err: any) {
+      console.error('Error al definir foto de portada:', err);
+      alert('Error al definir foto de portada: ' + (err.message || err));
+    }
+  };
+
   const handleAddGalleryUrl = async () => {
     if (!newGalleryUrl) return;
     if (!business) return;
     const currentGallery = bizForm.gallery_urls || [];
     const updatedGallery = [...currentGallery, newGalleryUrl];
+    const newCoverUrl = bizForm.cover_url || newGalleryUrl;
 
-    setBizForm({ ...bizForm, gallery_urls: updatedGallery });
+    const updatedForm = { ...bizForm, gallery_urls: updatedGallery, cover_url: newCoverUrl };
+    setBizForm(updatedForm);
     setNewGalleryUrl('');
 
     try {
-      await db.updateBusiness(business.id, { ...bizForm, gallery_urls: updatedGallery });
+      await db.updateBusiness(business.id, updatedForm);
       await loadBusinessData();
     } catch (err: any) {
       console.error('Error al añadir foto a galería:', err);
@@ -696,11 +711,18 @@ export default function AdminPanel({
   const handleRemoveGalleryUrl = async (idx: number) => {
     if (!business) return;
     const currentGallery = bizForm.gallery_urls || [];
+    const removedUrl = currentGallery[idx];
     const updatedGallery = currentGallery.filter((_, i) => i !== idx);
-    setBizForm({ ...bizForm, gallery_urls: updatedGallery });
+    let newCoverUrl = bizForm.cover_url;
+    if (newCoverUrl === removedUrl) {
+      newCoverUrl = updatedGallery[0] || '';
+    }
+
+    const updatedForm = { ...bizForm, gallery_urls: updatedGallery, cover_url: newCoverUrl };
+    setBizForm(updatedForm);
 
     try {
-      await db.updateBusiness(business.id, { ...bizForm, gallery_urls: updatedGallery });
+      await db.updateBusiness(business.id, updatedForm);
       await loadBusinessData();
     } catch (err: any) {
       console.error('Error al remover foto de galería:', err);
@@ -1492,11 +1514,40 @@ export default function AdminPanel({
 
             {/* Galería de Fotos y Certificados */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Fotos */}
+              {/* Fotos y Portada */}
               <div className="bg-[#1c2128] p-6 rounded-xl border border-[#2d333b] shadow-xl space-y-4">
                 <div>
-                  <h4 className="font-display italic font-bold text-sm text-[#c5a059]">Galería de Fotos Destacadas</h4>
-                  <p className="text-xs text-[#e2e8f0]/60 mt-0.5">Sube imágenes de tu almacenamiento local o ingresa enlaces web para mostrar tus instalaciones y calidad de servicio.</p>
+                  <h4 className="font-display italic font-bold text-sm text-[#c5a059] flex items-center gap-1.5">
+                    <Star className="w-4 h-4 text-[#c5a059] fill-current" />
+                    <span>Galería de Fotos & Portada del Negocio</span>
+                  </h4>
+                  <p className="text-xs text-[#e2e8f0]/60 mt-0.5">
+                    Sube fotos de tu negocio a la galería y selecciona directamente cuál de ellas será la <strong>Foto de Portada oficial</strong>.
+                  </p>
+                </div>
+
+                {/* Vista previa de Portada Actual */}
+                <div className="p-3 bg-[#0f1115] border border-[#2d333b] rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold text-[#e2e8f0]/80 uppercase flex items-center gap-1.5">
+                      <Star className="w-3.5 h-3.5 text-[#c5a059] fill-current" />
+                      Foto de Portada Seleccionada
+                    </span>
+                    <span className="text-[10px] text-[#c5a059]">Visible en el catálogo público</span>
+                  </div>
+                  {bizForm.cover_url ? (
+                    <div className="relative aspect-video w-full rounded-lg overflow-hidden border border-[#c5a059]/40 bg-[#16191f]">
+                      <img src={bizForm.cover_url} alt="Portada actual" className="w-full h-full object-cover" />
+                      <div className="absolute top-2 left-2 bg-[#0f1115]/90 border border-[#c5a059]/60 text-[#c5a059] text-[10px] font-extrabold px-2 py-0.5 rounded shadow flex items-center gap-1">
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                        Portada Activa
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border border-dashed border-[#2d333b] rounded-lg p-4 text-center text-xs text-[#e2e8f0]/50">
+                      Aún no has seleccionado una foto de portada. Agrega fotos abajo y pulsa "Fijar Portada".
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-4 mb-1">
@@ -1539,12 +1590,14 @@ export default function AdminPanel({
                             const base64 = await handleFileToBase64(file);
                             const currentGallery = bizForm.gallery_urls || [];
                             const updatedGallery = [...currentGallery, base64];
-                            setBizForm({ ...bizForm, gallery_urls: updatedGallery });
+                            const newCoverUrl = bizForm.cover_url || base64;
+                            const updatedForm = { ...bizForm, gallery_urls: updatedGallery, cover_url: newCoverUrl };
+                            setBizForm(updatedForm);
                             if (business) {
-                              await db.updateBusiness(business.id, { ...bizForm, gallery_urls: updatedGallery });
+                              await db.updateBusiness(business.id, updatedForm);
                               await loadBusinessData();
                             }
-                            alert('¡Imagen añadida y guardada en la galería con éxito!');
+                            alert('¡Imagen añadida a la galería con éxito!');
                           } catch (err) {
                             console.error('Error al subir imagen de galería:', err);
                             alert('No se pudo cargar la imagen.');
@@ -1559,19 +1612,57 @@ export default function AdminPanel({
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-2 pt-2">
-                  {(bizForm.gallery_urls || []).map((url, idx) => (
-                    <div key={idx} className="relative aspect-video rounded-lg overflow-hidden border border-[#2d333b] group">
-                      <img src={url} alt="Galería" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveGalleryUrl(idx)}
-                        className="absolute inset-0 bg-black/75 opacity-0 group-hover:opacity-100 flex items-center justify-center text-red-400 text-xs font-bold transition-opacity cursor-pointer"
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  ))}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] font-bold text-[#e2e8f0]/80 uppercase block">
+                      Fotos de la Galería ({(bizForm.gallery_urls || []).length})
+                    </span>
+                    <span className="text-[10px] text-[#e2e8f0]/40">Haz clic en "Fijar Portada" para cambiarla</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
+                    {(bizForm.gallery_urls || []).map((url, idx) => {
+                      const isCover = bizForm.cover_url === url;
+                      return (
+                        <div 
+                          key={idx} 
+                          className={`relative aspect-video rounded-lg overflow-hidden border transition-all group ${
+                            isCover 
+                              ? 'border-[#c5a059] ring-2 ring-[#c5a059]/50 shadow-md' 
+                              : 'border-[#2d333b] hover:border-[#c5a059]/40'
+                          }`}
+                        >
+                          <img src={url} alt={`Galería ${idx + 1}`} className="w-full h-full object-cover" />
+                          
+                          {/* Badge de Portada */}
+                          {isCover ? (
+                            <div className="absolute top-1.5 left-1.5 z-10 bg-[#c5a059] text-[#0f1115] text-[9px] font-extrabold px-1.5 py-0.5 rounded shadow flex items-center gap-1">
+                              <Star className="w-2.5 h-2.5 fill-current" />
+                              Portada
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSetCoverPhoto(url)}
+                              className="absolute top-1.5 left-1.5 z-10 bg-[#0f1115]/90 hover:bg-[#c5a059] text-[#e2e8f0] hover:text-[#0f1115] text-[9px] font-bold px-2 py-0.5 rounded transition-all cursor-pointer border border-[#2d333b] shadow"
+                              title="Seleccionar esta foto como portada"
+                            >
+                              Fijar Portada
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveGalleryUrl(idx)}
+                            className="absolute bottom-1.5 right-1.5 z-10 bg-red-600/80 hover:bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded transition-colors cursor-pointer shadow"
+                            title="Eliminar foto de la galería"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
