@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, MapPin, Phone, Award, Image as ImageIcon, Check, Star, Calendar as CalendarIcon, Briefcase, Clock, DollarSign,
-  ChevronLeft, ChevronRight, FileText
+  ChevronLeft, ChevronRight, FileText, Maximize2, Grid, X, ZoomIn, Eye
 } from 'lucide-react';
 import { db } from '../lib/db';
 import { Business, Service, Professional, Profile } from '../types';
@@ -40,6 +40,9 @@ export default function BusinessDetail({
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [showCertModal, setShowCertModal] = useState<boolean>(false);
+  const [showGalleryModal, setShowGalleryModal] = useState<boolean>(false);
+  const [galleryModalIndex, setGalleryModalIndex] = useState<number>(0);
+  const [galleryViewMode, setGalleryViewMode] = useState<'carousel' | 'grid'>('carousel');
   const [loading, setLoading] = useState<boolean>(true);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState<number>(0);
   const [activeServiceImages, setActiveServiceImages] = useState<Record<string, string>>({});
@@ -64,6 +67,26 @@ export default function BusinessDetail({
     };
     loadBusinessDetail();
   }, [slug]);
+
+  const allPhotos = [
+    business?.cover_url,
+    ...(business?.gallery_urls || [])
+  ].filter(Boolean) as string[];
+
+  useEffect(() => {
+    if (!showGalleryModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowGalleryModal(false);
+      } else if (e.key === 'ArrowLeft') {
+        setGalleryModalIndex((prev) => (allPhotos.length > 0 ? (prev === 0 ? allPhotos.length - 1 : prev - 1) : 0));
+      } else if (e.key === 'ArrowRight') {
+        setGalleryModalIndex((prev) => (allPhotos.length > 0 ? (prev === allPhotos.length - 1 ? 0 : prev + 1) : 0));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showGalleryModal, allPhotos.length]);
 
   if (loading) {
     return (
@@ -99,11 +122,6 @@ export default function BusinessDetail({
 
       {/* TODAS LAS FOTOS EN LA PARTE SUPERIOR (CARRUSEL UNO POR UNO) */}
       {(() => {
-        const allPhotos = [
-          business.cover_url,
-          ...(business.gallery_urls || [])
-        ].filter(Boolean) as string[];
-
         if (allPhotos.length === 0) {
           return (
             <div className="space-y-3" id="top-gallery-carousel">
@@ -129,36 +147,94 @@ export default function BusinessDetail({
           setCurrentPhotoIndex((prev) => (prev === allPhotos.length - 1 ? 0 : prev + 1));
         };
 
+        const handleOpenCatalog = (indexToOpen = safeIndex) => {
+          setGalleryModalIndex(indexToOpen);
+          setShowGalleryModal(true);
+        };
+
         return (
           <div className="space-y-3" id="top-gallery-carousel">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <ImageIcon className="w-4 h-4 text-[#c5a059]" />
-                <span className="text-[10px] font-bold text-[#c5a059] uppercase tracking-wider block">Galería del Establecimiento</span>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              {/* Título de Galería del Establecimiento ahora clickeable con indicador */}
+              <button
+                type="button"
+                onClick={() => handleOpenCatalog(safeIndex)}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#1c2128] hover:bg-[#2d333b] border border-[#2d333b] hover:border-[#c5a059]/60 text-[#c5a059] transition-all cursor-pointer group shadow-sm text-left"
+                title="Hacer clic para abrir el catálogo y ver fotos del establecimiento"
+                id="open-gallery-title-btn"
+              >
+                <div className="w-6 h-6 rounded-lg bg-[#c5a059]/15 flex items-center justify-center text-[#c5a059] group-hover:scale-110 transition-transform">
+                  <ImageIcon className="w-3.5 h-3.5" />
+                </div>
+                <span className="text-xs sm:text-sm font-bold uppercase tracking-wider block">
+                  Galería del Establecimiento
+                </span>
+                <span className="text-[10px] font-bold bg-[#c5a059]/20 text-[#c5a059] group-hover:bg-[#c5a059] group-hover:text-[#0f1115] px-2.5 py-0.5 rounded-full flex items-center gap-1 transition-all ml-1">
+                  <Maximize2 className="w-3 h-3" />
+                  Abrir Catálogo
+                </span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono text-[#c5a059] font-bold bg-[#1c2128] px-3 py-1.5 rounded-xl border border-[#2d333b]">
+                  {safeIndex + 1} de {allPhotos.length} fotos
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGalleryViewMode('grid');
+                    handleOpenCatalog(safeIndex);
+                  }}
+                  className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-[#e2e8f0]/80 hover:text-[#c5a059] bg-[#1c2128] hover:bg-[#2d333b] border border-[#2d333b] hover:border-[#c5a059]/40 px-3 py-1.5 rounded-xl transition-all cursor-pointer"
+                  title="Ver todas las fotos en mosaico"
+                >
+                  <Grid className="w-3.5 h-3.5 text-[#c5a059]" />
+                  <span>Ver Mosaico</span>
+                </button>
               </div>
-              <span className="text-[10px] font-mono text-[#c5a059] font-bold">
-                Imagen {safeIndex + 1} de {allPhotos.length}
-              </span>
             </div>
 
-            {/* Contenedor Principal del Carrusel */}
-            <div className="relative aspect-video sm:aspect-[21/9] w-full rounded-2xl overflow-hidden border border-[#2d333b] bg-[#0f1115] shadow-lg group">
+            {/* Contenedor Principal del Carrusel (Click abre el catálogo) */}
+            <div 
+              onClick={() => handleOpenCatalog(safeIndex)}
+              className="relative aspect-video sm:aspect-[21/9] w-full rounded-2xl overflow-hidden border border-[#2d333b] bg-[#0f1115] shadow-lg group cursor-pointer"
+              title="Haz clic para abrir el catálogo y ver fotos en alta definición"
+            >
               <img 
                 src={allPhotos[safeIndex]} 
                 alt={`${business.name} foto ${safeIndex}`} 
-                className="w-full h-full object-cover transition-all duration-500 ease-in-out" 
+                className="w-full h-full object-cover transition-all duration-500 ease-in-out group-hover:scale-[1.01]" 
               />
               
               {/* Degradado inferior */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none" />
+
+              {/* Botón flotante para abrir catálogo */}
+              <div className="absolute top-4 right-4 z-10">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenCatalog(safeIndex);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black/65 hover:bg-[#c5a059] text-white hover:text-[#0f1115] backdrop-blur-md border border-white/10 hover:border-[#c5a059] text-xs font-bold shadow-lg transition-all cursor-pointer"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Ver Catálogo</span>
+                </button>
+              </div>
 
               {/* Controles de Navegación */}
               {allPhotos.length > 1 && (
                 <>
                   {/* Flecha Izquierda */}
                   <button
-                    onClick={handlePrevPhoto}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 bg-[#0f1115]/75 hover:bg-[#c5a059] text-[#e2e8f0] hover:text-[#0f1115] p-2.5 rounded-full border border-[#2d333b] transition-all cursor-pointer opacity-80 hover:opacity-100 shadow-lg"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePrevPhoto();
+                    }}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 bg-[#0f1115]/80 hover:bg-[#c5a059] text-[#e2e8f0] hover:text-[#0f1115] p-2.5 rounded-full border border-[#2d333b] transition-all cursor-pointer opacity-85 hover:opacity-100 shadow-lg z-10"
                     aria-label="Foto anterior"
                   >
                     <ChevronLeft className="w-5 h-5" />
@@ -166,8 +242,12 @@ export default function BusinessDetail({
 
                   {/* Flecha Derecha */}
                   <button
-                    onClick={handleNextPhoto}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 bg-[#0f1115]/75 hover:bg-[#c5a059] text-[#e2e8f0] hover:text-[#0f1115] p-2.5 rounded-full border border-[#2d333b] transition-all cursor-pointer opacity-80 hover:opacity-100 shadow-lg"
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleNextPhoto();
+                    }}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 bg-[#0f1115]/80 hover:bg-[#c5a059] text-[#e2e8f0] hover:text-[#0f1115] p-2.5 rounded-full border border-[#2d333b] transition-all cursor-pointer opacity-85 hover:opacity-100 shadow-lg z-10"
                     aria-label="Foto siguiente"
                   >
                     <ChevronRight className="w-5 h-5" />
@@ -175,22 +255,30 @@ export default function BusinessDetail({
                 </>
               )}
 
-              {/* Etiqueta de la Foto */}
-              <div className="absolute bottom-4 left-6">
-                <span className="text-[10px] font-bold text-[#e2e8f0] bg-[#0f1115]/80 border border-[#2d333b] px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-                  {safeIndex === 0 ? 'Portada Principal' : `Instalación ${safeIndex}`}
+              {/* Etiqueta de la Foto y ayuda de click */}
+              <div className="absolute bottom-4 left-6 flex items-center gap-2">
+                <span className="text-[10px] font-bold text-[#e2e8f0] bg-[#0f1115]/85 border border-[#2d333b] px-3 py-1 rounded-full uppercase tracking-wider shadow-sm backdrop-blur-sm">
+                  {safeIndex === 0 ? 'Foto de Portada' : `Instalación ${safeIndex}`}
+                </span>
+                <span className="hidden sm:inline-flex text-[10px] text-[#c5a059] bg-[#0f1115]/85 border border-[#c5a059]/30 px-2.5 py-1 rounded-full items-center gap-1 backdrop-blur-sm">
+                  <ZoomIn className="w-3 h-3" />
+                  Clic para abrir catálogo
                 </span>
               </div>
 
               {/* Indicadores en forma de puntos (Bullets) */}
               {allPhotos.length > 1 && (
-                <div className="absolute bottom-4 right-6 flex gap-1.5 bg-[#0f1115]/60 px-3 py-1.5 rounded-full border border-white/5">
+                <div 
+                  className="absolute bottom-4 right-6 flex gap-1.5 bg-[#0f1115]/70 px-3 py-1.5 rounded-full border border-white/5 backdrop-blur-sm z-10"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {allPhotos.map((_, dotIdx) => (
                     <button
                       key={dotIdx}
+                      type="button"
                       onClick={() => setCurrentPhotoIndex(dotIdx)}
-                      className={`w-2 h-2 rounded-full transition-all cursor-pointer ${
-                        dotIdx === safeIndex ? 'bg-[#c5a059] w-4' : 'bg-[#e2e8f0]/40 hover:bg-[#e2e8f0]/70'
+                      className={`h-2 rounded-full transition-all cursor-pointer ${
+                        dotIdx === safeIndex ? 'bg-[#c5a059] w-4' : 'bg-[#e2e8f0]/40 hover:bg-[#e2e8f0]/70 w-2'
                       }`}
                       aria-label={`Ir a foto ${dotIdx + 1}`}
                     />
@@ -565,6 +653,195 @@ export default function BusinessDetail({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* VENTANA EMERGENTE: CATÁLOGO COMPLETO DE FOTOS DE LA EMPRESA */}
+      {showGalleryModal && allPhotos.length > 0 && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col justify-between p-3 sm:p-6 animate-in fade-in duration-200"
+          onClick={() => setShowGalleryModal(false)}
+        >
+          {/* Barra Superior del Catálogo */}
+          <div 
+            className="w-full max-w-6xl mx-auto flex items-center justify-between gap-4 pb-3 border-b border-[#2d333b]/80 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#c5a059]/15 border border-[#c5a059]/30 flex items-center justify-center text-[#c5a059] shrink-0">
+                <ImageIcon className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-[#c5a059] uppercase tracking-wider">Catálogo del Establecimiento</span>
+                  <span className="text-[10px] font-mono bg-[#1c2128] border border-[#2d333b] text-[#e2e8f0]/80 px-2 py-0.5 rounded-md">
+                    {galleryViewMode === 'carousel' ? `${galleryModalIndex + 1} de ${allPhotos.length}` : `${allPhotos.length} fotos totales`}
+                  </span>
+                </div>
+                <h3 className="font-display italic font-bold text-base sm:text-lg text-[#e2e8f0] leading-tight">
+                  {business.name}
+                </h3>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Botón cambiar de vista */}
+              <div className="bg-[#1c2128] p-0.5 rounded-xl border border-[#2d333b] flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setGalleryViewMode('carousel')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    galleryViewMode === 'carousel'
+                      ? 'bg-[#c5a059] text-[#0f1115] shadow-sm'
+                      : 'text-[#e2e8f0]/70 hover:text-[#e2e8f0]'
+                  }`}
+                  title="Vista de una foto ampliada"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Detalle</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGalleryViewMode('grid')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    galleryViewMode === 'grid'
+                      ? 'bg-[#c5a059] text-[#0f1115] shadow-sm'
+                      : 'text-[#e2e8f0]/70 hover:text-[#e2e8f0]'
+                  }`}
+                  title="Vista en mosaico / cuadrícula"
+                >
+                  <Grid className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Mosaico</span>
+                </button>
+              </div>
+
+              {/* Botón Cerrar */}
+              <button
+                type="button"
+                onClick={() => setShowGalleryModal(false)}
+                className="text-[#e2e8f0]/80 hover:text-white bg-[#1c2128] hover:bg-rose-500/20 hover:border-rose-500/40 border border-[#2d333b] p-2 sm:px-3 sm:py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold"
+                aria-label="Cerrar catálogo"
+                title="Cerrar (Esc)"
+              >
+                <X className="w-4 h-4" />
+                <span className="hidden sm:inline">Cerrar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Cuerpo Central del Catálogo */}
+          <div 
+            className="w-full max-w-6xl mx-auto flex-1 flex items-center justify-center my-3 relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {galleryViewMode === 'carousel' ? (
+              <div className="relative w-full h-full flex flex-col items-center justify-center">
+                {/* Imagen Principal */}
+                <div className="relative max-h-[62vh] sm:max-h-[66vh] w-full flex items-center justify-center">
+                  <img
+                    src={allPhotos[galleryModalIndex]}
+                    alt={`${business.name} foto ampliada ${galleryModalIndex + 1}`}
+                    className="max-h-[62vh] sm:max-h-[66vh] max-w-full object-contain rounded-2xl border border-[#2d333b] shadow-2xl bg-[#090b0e]"
+                  />
+                  
+                  {/* Badge identificador */}
+                  <div className="absolute bottom-3 left-4">
+                    <span className="bg-[#0f1115]/85 border border-[#2d333b] text-[#c5a059] text-xs font-semibold px-3 py-1 rounded-full shadow-lg backdrop-blur-sm">
+                      {galleryModalIndex === 0 ? 'Foto de Portada Oficial' : `Foto ${galleryModalIndex + 1} de Instalación`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Flechas Navegación */}
+                {allPhotos.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setGalleryModalIndex((prev) => (prev === 0 ? allPhotos.length - 1 : prev - 1))}
+                      className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 bg-[#1c2128]/85 hover:bg-[#c5a059] text-[#e2e8f0] hover:text-[#0f1115] border border-[#2d333b] p-3 rounded-full transition-all cursor-pointer shadow-2xl z-10"
+                      aria-label="Foto anterior"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGalleryModalIndex((prev) => (prev === allPhotos.length - 1 ? 0 : prev + 1))}
+                      className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 bg-[#1c2128]/85 hover:bg-[#c5a059] text-[#e2e8f0] hover:text-[#0f1115] border border-[#2d333b] p-3 rounded-full transition-all cursor-pointer shadow-2xl z-10"
+                      aria-label="Foto siguiente"
+                    >
+                      <ChevronRight className="w-6 h-6" />
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              /* Vista Cuadrícula / Mosaico */
+              <div className="w-full h-full max-h-[68vh] overflow-y-auto pr-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 p-2">
+                {allPhotos.map((photo, pIdx) => (
+                  <div
+                    key={pIdx}
+                    onClick={() => {
+                      setGalleryModalIndex(pIdx);
+                      setGalleryViewMode('carousel');
+                    }}
+                    className={`group relative aspect-video rounded-xl overflow-hidden border cursor-pointer transition-all duration-200 bg-[#0f1115] ${
+                      pIdx === galleryModalIndex
+                        ? 'border-[#c5a059] ring-2 ring-[#c5a059]/40 scale-[1.02]'
+                        : 'border-[#2d333b] hover:border-[#c5a059]/60 hover:scale-[1.02]'
+                    }`}
+                  >
+                    <img
+                      src={photo}
+                      alt={`${business.name} miniatura ${pIdx + 1}`}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-80 group-hover:opacity-100 transition-opacity" />
+                    <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-[10px]">
+                      <span className="font-bold text-[#e2e8f0] bg-black/60 px-2 py-0.5 rounded">
+                        {pIdx === 0 ? 'Portada' : `Foto ${pIdx + 1}`}
+                      </span>
+                      <span className="text-[#c5a059] font-semibold flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ZoomIn className="w-3 h-3" />
+                        Ver
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Carrusel de Miniaturas Inferior (En modo detalle) */}
+          {galleryViewMode === 'carousel' && allPhotos.length > 1 && (
+            <div 
+              className="w-full max-w-6xl mx-auto pt-2 border-t border-[#2d333b]/80 shrink-0 flex items-center justify-center gap-2 overflow-x-auto pb-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {allPhotos.map((thumb, tIdx) => (
+                <button
+                  key={tIdx}
+                  type="button"
+                  onClick={() => setGalleryModalIndex(tIdx)}
+                  className={`relative w-14 h-11 sm:w-18 sm:h-12 rounded-lg overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
+                    tIdx === galleryModalIndex
+                      ? 'border-[#c5a059] scale-105 shadow-md ring-2 ring-[#c5a059]/40'
+                      : 'border-[#2d333b] opacity-60 hover:opacity-100 hover:border-[#e2e8f0]/40'
+                  }`}
+                >
+                  <img
+                    src={thumb}
+                    alt={`Miniatura ${tIdx + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                  {tIdx === 0 && (
+                    <span className="absolute bottom-0 inset-x-0 bg-[#c5a059] text-[#0f1115] text-[7px] font-bold text-center uppercase tracking-tighter">
+                      Portada
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
